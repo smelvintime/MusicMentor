@@ -202,14 +202,16 @@ function render() {
   $('tabs').hidden = false;
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
 
-  const p = q.prompt;
-  const el = $('prompt');
+  drawPrompt($('prompt'), q.prompt, deck);
+  if (q.autoplay) play(q.play, true);
+  renderAnswer();
+}
+
+function drawPrompt(el, p, deck) {
   if (p.type === 'staff') drawStaff(el, p);
   if (p.type === 'piano') drawPiano(el, deck.piano, Object.fromEntries(p.highlight.map((m) => [m, 'hl'])));
   if (p.type === 'text') el.innerHTML = `<div class="bigtext">${p.text}</div>`;
   if (p.type === 'ear') el.innerHTML = `<div class="ear">${ICON.speaker}</div>`;
-  if (q.autoplay) play(q.play, true);
-  renderAnswer();
 }
 
 function renderAnswer() {
@@ -232,7 +234,7 @@ function choose(c, btn) {
   const ok = c === q.correct;
   btn.classList.add(ok ? 'ok' : 'bad');
   if (!ok) [...$('answer').querySelectorAll('.choice')].find((b) => b.textContent === q.correct).classList.add('ok');
-  settle(ok);
+  settle(ok, c);
 }
 
 const markKeys = (keys, cls) => keys.forEach((m) => $('answer').querySelector(`[data-m="${m}"]`)?.classList.add(cls));
@@ -243,7 +245,7 @@ function tapKey(m, k) {
     const ok = q.exact ? m === q.keys[0] : m % 12 === q.keys[0] % 12;
     k.classList.add(ok ? 'ok' : 'bad');
     if (!ok) markKeys(q.keys, 'ok');
-    return settle(ok);
+    return settle(ok, MM.pcName(m));
   }
   if (sel.has(m)) { sel.delete(m); k.classList.remove('sel'); return; }
   sel.add(m);
@@ -255,11 +257,12 @@ function tapKey(m, k) {
   const want = new Set(q.keys.map((x) => (q.exact ? x : x % 12)));
   sel.forEach((x) => $('answer').querySelector(`[data-m="${x}"]`).classList.add(want.has(q.exact ? x : x % 12) ? 'ok' : 'bad'));
   if (!ok) markKeys(q.keys, 'ok');
-  settle(ok);
+  settle(ok, [...sel].sort((a, b) => a - b).map(MM.pcName).join(' '));
 }
 
-function settle(ok) {
+function settle(ok, given) {
   locked = true;
+  if (!ok) logMiss(given);
   const ms = performance.now() - t0;
   tally = { ...tally, n: tally.n + 1, ok: tally.ok + (ok ? 1 : 0), ms: tally.ms + ms };
   if (!ok) tally.missed.add(item.label);
@@ -315,6 +318,34 @@ function announce(num) {
   announceTimer = setTimeout(() => { a.hidden = true; }, 3500);
 }
 
+// ---------- history of misses ----------
+const HISTORY_MAX = 50; // newest first; capped so infinite mode can't grow it forever
+let history = [];
+function logMiss(given) {
+  const correct = mode === 'keys' ? q.keys.map(MM.pcName).join(' ') : q.correct;
+  history = [{ deck: q.deck, prompt: q.prompt, ask: q.ask, given, correct, hint: q.hint, play: q.play }, ...history].slice(0, HISTORY_MAX);
+}
+
+function openHistory() {
+  const body = $('sheetBody');
+  body.innerHTML = `<h2>Missed</h2>${history.length ? '<div class="muted">Newest first. Tap one to hear it.</div>' : '<p class="muted">Nothing missed yet.</p>'}`;
+  history.forEach((h) => {
+    const row = document.createElement('div');
+    row.className = 'hist';
+    const pr = document.createElement('div');
+    pr.className = 'prompt';
+    drawPrompt(pr, h.prompt, DECKS[h.deck]);
+    row.append(pr);
+    row.insertAdjacentHTML('beforeend', `<div class="muted">${h.ask}</div>
+      <div class="verdict"><span class="c-bad">${h.given}</span><span class="muted">→</span><span class="c-ok">${h.correct}</span></div>
+      <div class="hint">${h.hint}</div>`);
+    if (h.play) row.onclick = () => play(h.play, true);
+    body.append(row);
+  });
+  body.insertAdjacentHTML('beforeend', '<button class="next">Close</button>');
+  $('sheet').hidden = false;
+}
+
 function finish() {
   const { n: total, ok: c, ms } = tally;
   const avg = ms / Math.max(total, 1) / 1000;
@@ -323,6 +354,7 @@ function finish() {
   $('doneSub').textContent = `${c} / ${total} correct · ${avg.toFixed(1)}s per answer`;
   const missed = [...tally.missed];
   $('missed').innerHTML = missed.map((l) => `<span>${l}</span>`).join('');
+  $('review').hidden = !missed.length;
   show('done');
 }
 
@@ -367,6 +399,8 @@ $('quit').onclick = () => (!S.len && tally.n ? finish() : renderHome());
 $('homeBtn').onclick = renderHome;
 $('again').onclick = () => start(deckId);
 $('next').onclick = nextQ;
+$('historyBtn').onclick = openHistory;
+$('review').onclick = openHistory;
 $('learnBtn').onclick = () => openLearn(q.deck);
 $('sheet').onclick = (e) => { if (e.target.id === 'sheet' || e.target.matches('.next')) $('sheet').hidden = true; };
 $('card').onclick = () => {
