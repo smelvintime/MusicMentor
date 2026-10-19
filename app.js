@@ -171,7 +171,7 @@ function weighted(pool) {
 
 function nextQ() {
   silence();
-  if (n >= S.len) return finish();
+  if (S.len && n >= S.len) return finish(); // len 0 = infinite
   const did = deckId === 'mix' ? MM.shuffle(Object.keys(DECKS))[0] : deckId;
   const pool = DECKS[did].pool(S.adv);
   item = weighted(pool.length > 1 ? pool.filter((i) => i.id !== lastId) : pool);
@@ -186,8 +186,9 @@ function nextQ() {
 
 function render() {
   const deck = DECKS[q.deck];
-  $('count').textContent = `${n} / ${S.len}`;
-  $('progress').style.width = `${((n - 1) / S.len) * 100}%`;
+  const right = results.filter((r) => r.ok).length;
+  $('count').textContent = S.len ? `${n} / ${S.len}` : `${right} / ${results.length} correct`;
+  $('progress').style.width = S.len ? `${((n - 1) / S.len) * 100}%` : '0';
   $('ask').textContent = deckId === 'mix' ? `${deck.title} · ${q.ask}` : q.ask;
   $('hint').hidden = true;
   $('next').hidden = true;
@@ -356,7 +357,8 @@ function renderHome() {
 $('decks').addEventListener('click', (e) => { const b = e.target.closest('[data-deck]'); if (b) start(b.dataset.deck); });
 $('adv').onclick = () => { S.adv = !S.adv; save(); renderHome(); };
 document.querySelectorAll('[data-len]').forEach((b) => { b.onclick = () => { S.len = +b.dataset.len; save(); renderHome(); }; });
-$('quit').onclick = renderHome;
+// In infinite mode, leaving shows the round summary instead of dropping the stats.
+$('quit').onclick = () => (!S.len && results.length ? finish() : renderHome());
 $('homeBtn').onclick = renderHome;
 $('again').onclick = () => start(deckId);
 $('next').onclick = nextQ;
