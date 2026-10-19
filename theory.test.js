@@ -52,6 +52,18 @@ for (const hard of [false, true]) {
   }
 }
 
+// Chord reading is answered by name only, and covers both clefs.
+const chordQs = Array.from({ length: 300 }, () => DECKS.chords.make(DECKS.chords.pool(true)[0], true, true));
+assert.ok(chordQs.every((q) => !q.keys && q.choices), 'chords must not be answerable on the piano');
+assert.ok(chordQs.some((q) => q.prompt.clef === 'bass') && chordQs.some((q) => q.prompt.clef === 'treble'), 'chords in both clefs');
+for (const it of DECKS.chords.pool(true)) {
+  for (let k = 0; k < 20; k++) {
+    const q = DECKS.chords.make(it, true, true);
+    const top = Math.max(...q.play);
+    assert.ok(q.prompt.clef === 'bass' ? top <= 59 : top <= 83, `${it.id} too high for ${q.prompt.clef}`);
+  }
+}
+
 // Hard mode actually gets harder.
 const hardTreble = DECKS.treble.pool(true, true).length > DECKS.treble.pool(true, false).length;
 assert.ok(hardTreble, 'hard treble adds ledger notes');

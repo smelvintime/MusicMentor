@@ -142,24 +142,30 @@ const MM = (() => {
   const chordHint = (it, inv = 0) =>
     `${it.label} = ${it.notes.map(name).join(' – ')}. ${QUAL[it.q].label}: ${QUAL[it.q].tip}. ${INVERSION_TIP[inv]}`;
 
-  // Hard mode: move the bottom note up an octave `k` times, kept within C4–B5.
-  function invert(notes, k) {
+  const octave = (notes, by) => notes.map((n) => ({ ...n, oct: n.oct + by }));
+
+  // Hard mode: move the bottom note up an octave `k` times, then drop the
+  // whole chord an octave at a time until its top note is at or below `max`.
+  function invert(notes, k, max = 83) {
     let v = notes;
     for (let i = 0; i < k; i++) v = [...v.slice(1), { ...v[0], oct: v[0].oct + 1 }];
-    return midi(v.at(-1)) > 83 ? v.map((n) => ({ ...n, oct: n.oct - 1 })) : v;
+    while (midi(v.at(-1)) > max) v = octave(v, -1);
+    return v;
   }
 
+  // Read-only: answered by naming it, never on the piano. Half the chords are in bass clef.
   function chordStaffQuestion(it, adv, hard) {
     const inv = hard ? rand([0, 1, 2]) : 0;
-    const notes = invert(it.notes, inv);
+    const clef = rand(['treble', 'bass']);
+    // Bass chords stay on the bass staff: top note no higher than B3 (just above the top line).
+    const notes = clef === 'bass' ? invert(octave(it.notes, -1), inv, 59) : invert(it.notes, inv);
+    const clefTip = clef === 'bass' ? 'Bass clef: lines G B D F A, spaces A C E G. ' : '';
     return {
-      prompt: { type: 'staff', clef: 'treble', notes: [{ keys: notes.map(vex), accs: notes.map((n) => n.acc), dur: 'w' }] },
+      prompt: { type: 'staff', clef, notes: [{ keys: notes.map(vex), accs: notes.map((n) => n.acc), dur: 'w' }] },
       ask: 'Name this chord',
       choices: pickRandom(it.label, chordPool(adv).map((c) => c.label)),
       correct: it.label,
-      keys: notes.map(midi),
-      exact: true,
-      hint: chordHint(it, inv),
+      hint: clefTip + chordHint(it, inv),
       play: notes.map(midi),
     };
   }
@@ -470,12 +476,12 @@ const MM = (() => {
       learn: ['Check the clef FIRST, then the note.', 'Treble lines: E G B D F. Bass lines: G B D F A.', 'Both clefs meet at Middle C.'],
     },
     chords: {
-      title: 'Chords', sub: 'Read stacked triads', piano: range(60, 83),
+      title: 'Chords', sub: 'Read triads, treble & bass',
       pool: chordPool, make: chordStaffQuestion,
       learn: [
         'A triad is 3 notes stacked in thirds — all on lines or all on spaces.',
         'The bottom note (in root position) is the root and names the chord.',
-        'Piano mode: tap all 3 keys.',
+        'Half the chords are in bass clef. Check the clef first: bass lines are G B D F A, spaces A C E G.',
         ...CHORD_GUIDE,
       ],
       examples: CHORD_EXAMPLES,
