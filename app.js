@@ -14,7 +14,7 @@ const ICON = {
 
 // ---------- persistence ----------
 const S = (() => {
-  const base = { w: {}, s: {}, len: 20, sound: true, mode: {}, pick: [] };
+  const base = { w: {}, s: {}, len: 20, sound: true, mode: {}, pick: [], hard: false };
   try { return { ...base, ...JSON.parse(localStorage.getItem('mm')) }; } catch { return base; }
 })();
 const save = () => { try { localStorage.setItem('mm', JSON.stringify(S)); } catch { /* private mode: progress just won't persist */ } };
@@ -109,6 +109,9 @@ function drawStaff(el, p, labels) {
       return n;
     });
     VF.Formatter.FormatAndDraw(ctx, st, sn, { auto_beam: true });
+    notes.forEach((x, i) => {
+      if (x.tie && sn[i + 1]) new VF.StaveTie({ first_note: sn[i], last_note: sn[i + 1], first_indices: [0], last_indices: [0] }).setContext(ctx).draw();
+    });
   }
   const svg = el.querySelector('svg');
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
@@ -174,7 +177,7 @@ function start(id) {
 const itemWeight = (i) => S.w[i.id] ?? 1;
 // A deck's struggle = its cards' average, so Mix leans toward your weakest decks too.
 const deckWeight = (id) => {
-  const pool = DECKS[id].pool(SHARPS_FLATS);
+  const pool = DECKS[id].pool(SHARPS_FLATS, S.hard);
   return pool.reduce((a, i) => a + itemWeight(i), 0) / pool.length;
 };
 
@@ -189,10 +192,10 @@ function nextQ() {
   clearTimeout(advanceTimer);
   if (S.len && n >= S.len) return finish(); // len 0 = infinite
   const did = deckId === 'mix' ? weighted(mixDecks(), deckWeight) : deckId;
-  const pool = DECKS[did].pool(SHARPS_FLATS);
+  const pool = DECKS[did].pool(SHARPS_FLATS, S.hard);
   item = weighted(pool.length > 1 ? pool.filter((i) => i.id !== lastId) : pool, itemWeight);
   lastId = item.id;
-  q = { ...DECKS[did].make(item, SHARPS_FLATS), deck: did };
+  q = { ...DECKS[did].make(item, SHARPS_FLATS, S.hard), deck: did };
   n++;
   locked = false;
   sel = new Set();
@@ -464,6 +467,8 @@ const PREVIEW = {
 
 function renderHome() {
   document.querySelectorAll('[data-len]').forEach((b) => b.classList.toggle('on', +b.dataset.len === S.len));
+  $('hard').classList.toggle('on', S.hard);
+  $('hard').setAttribute('aria-checked', S.hard);
   $('decks').innerHTML = SECTIONS.map(([name, ids]) => `
     <div class="section">${name}</div>
     <div class="decks">${ids.map((id) => `
@@ -494,6 +499,7 @@ function renderHome() {
 }
 
 // ---------- events ----------
+$('hard').onclick = () => { S.hard = !S.hard; save(); renderHome(); };
 $('home').addEventListener('click', (e) => {
   const pk = e.target.closest('[data-pick]');
   if (pk) return togglePick(pk.dataset.pick, pk);

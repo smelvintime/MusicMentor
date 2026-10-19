@@ -134,31 +134,46 @@ const MM = (() => {
     return items;
   }
 
-  const chordHint = (it) =>
-    `${it.label} = ${it.notes.map(name).join(' – ')}. ${QUAL[it.q].label}: ${QUAL[it.q].tip}. Bottom note on the staff is the root.`;
+  const INVERSION_TIP = [
+    'Root position: the bottom note is the root.',
+    '1st inversion: the root moved to the top. The root is the note just above the biggest gap.',
+    '2nd inversion: the root is in the middle, just above the biggest gap.',
+  ];
+  const chordHint = (it, inv = 0) =>
+    `${it.label} = ${it.notes.map(name).join(' – ')}. ${QUAL[it.q].label}: ${QUAL[it.q].tip}. ${INVERSION_TIP[inv]}`;
 
-  function chordStaffQuestion(it, adv) {
+  // Hard mode: move the bottom note up an octave `k` times, kept within C4–B5.
+  function invert(notes, k) {
+    let v = notes;
+    for (let i = 0; i < k; i++) v = [...v.slice(1), { ...v[0], oct: v[0].oct + 1 }];
+    return midi(v.at(-1)) > 83 ? v.map((n) => ({ ...n, oct: n.oct - 1 })) : v;
+  }
+
+  function chordStaffQuestion(it, adv, hard) {
+    const inv = hard ? rand([0, 1, 2]) : 0;
+    const notes = invert(it.notes, inv);
     return {
-      prompt: { type: 'staff', clef: 'treble', notes: [{ keys: it.notes.map(vex), accs: it.notes.map((n) => n.acc), dur: 'w' }] },
+      prompt: { type: 'staff', clef: 'treble', notes: [{ keys: notes.map(vex), accs: notes.map((n) => n.acc), dur: 'w' }] },
       ask: 'Name this chord',
       choices: pickRandom(it.label, chordPool(adv).map((c) => c.label)),
       correct: it.label,
-      keys: it.notes.map(midi),
+      keys: notes.map(midi),
       exact: true,
-      hint: chordHint(it),
-      play: it.notes.map(midi),
+      hint: chordHint(it, inv),
+      play: notes.map(midi),
     };
   }
 
-  function chordPianoQuestion(it, adv) {
-    const keys = it.notes.map(midi);
+  function chordPianoQuestion(it, adv, hard) {
+    const inv = hard ? rand([0, 1, 2]) : 0;
+    const keys = invert(it.notes, inv).map(midi);
     if (Math.random() < 0.5) {
       return {
         prompt: { type: 'piano', highlight: keys },
         ask: 'Which chord is this?',
         choices: pickRandom(it.label, chordPool(adv).map((c) => c.label)),
         correct: it.label,
-        hint: chordHint(it),
+        hint: chordHint(it, inv),
         play: keys,
       };
     }
@@ -179,8 +194,16 @@ const MM = (() => {
     return items;
   }
 
-  function pianoNoteQuestion(it, adv) {
+  // Hard mode spellings that land on a white key.
+  const ODD_SPELLING = { 0: 'B♯', 4: 'F♭', 5: 'E♯', 11: 'C♭' };
+
+  function pianoNoteQuestion(it, adv, hard) {
     const m = it.m + (Math.random() < 0.5 ? 0 : 12); // either octave
+    if (hard && ODD_SPELLING[m % 12] && Math.random() < 0.5) {
+      const odd = ODD_SPELLING[m % 12];
+      const hint = `${odd} is just ${pcName(m)}: a sharp is always the very next key up and a flat the very next key down — even when that key is white.`;
+      return { prompt: { type: 'text', text: odd }, ask: 'Tap this key', keys: [m], exact: false, hint, play: [m] };
+    }
     const nm = pcName(m);
     const hint = isBlack(m)
       ? `Black keys come in groups of 2 and 3. ${nm}: a sharp is the key just right of a white key, a flat just left.`
@@ -212,63 +235,89 @@ const MM = (() => {
     { dur: 'qr', beats: '1', label: 'Quarter rest' },
     { dur: '8r', beats: '½', label: 'Eighth rest' },
   ];
-  const BEATS = ['4', '3', '2', '1½', '1', '½', '¼'];
+  const VALUES_HARD = [
+    { dur: '8d', beats: '¾', label: 'Dotted eighth note' },
+    { dur: '16r', beats: '¼', label: 'Sixteenth rest' },
+    { dur: 'h', tie: 'q', beats: '3', label: 'Half tied to quarter' },
+    { dur: 'q', tie: '8', beats: '1½', label: 'Quarter tied to eighth' },
+    { dur: 'h', tie: 'h', beats: '4', label: 'Half tied to half' },
+    { dur: 'q', tie: 'q', beats: '2', label: 'Quarter tied to quarter' },
+  ];
+  const BEATS = ['4', '3', '2', '1½', '1', '¾', '½', '¼'];
   const VALUE_TIPS = {
     w: 'Hollow head, no stem = 4 beats.', h: 'Hollow head with a stem = 2 beats.', q: 'Filled head with a stem = 1 beat.',
     8: 'One flag (or beam) halves a quarter = ½ beat.', 16: 'Two flags = ¼ beat.',
     hd: 'A dot adds half the value: 2 + 1 = 3 beats.', qd: 'A dot adds half the value: 1 + ½ = 1½ beats.',
     wr: 'Whole rest hangs DOWN from line 4 (heavy, it fell) = 4 beats.', hr: 'Half rest sits ON line 3 like a hat = 2 beats.',
     qr: 'The squiggle = 1 beat of silence.', '8r': 'One flag-like hook = ½ beat of silence.',
+    '8d': 'A dot adds half the value: ½ + ¼ = ¾ beat.', '16r': 'Two flag-like hooks = ¼ beat of silence.',
+    tie: 'A tie (curved line) joins two notes of the same pitch into one long sound: add their beats together.',
   };
 
   function valueQuestion(it) {
     const v = it.v;
     const rest = v.dur.includes('r');
-    const prompt = { type: 'staff', clef: null, notes: [{ keys: [v.dur === 'wr' ? 'd/5' : 'b/4'], dur: v.dur }] };
-    const hint = `${v.label}. ${VALUE_TIPS[v.dur]}`;
+    const first = { keys: [v.dur === 'wr' ? 'd/5' : 'b/4'], dur: v.dur, tie: !!v.tie };
+    const prompt = { type: 'staff', clef: null, notes: v.tie ? [first, { keys: ['b/4'], dur: v.tie }] : [first] };
+    const hint = `${v.label}. ${VALUE_TIPS[v.tie ? 'tie' : v.dur]}`;
     if (Math.random() < 0.5) {
       return { prompt, ask: 'How many beats? (in 4/4)', choices: pickRandom(v.beats, BEATS), correct: v.beats, hint };
     }
-    const pool = VALUES.filter((x) => x.dur.includes('r') === rest).map((x) => x.label);
+    const pool = [...VALUES, ...VALUES_HARD].filter((x) => x.dur.includes('r') === rest).map((x) => x.label);
     return { prompt, ask: 'What is this called?', choices: pickRandom(v.label, pool), correct: v.label, hint };
   }
 
-  const FRAC = { 1: '½', 2: '1', 3: '1½', 4: '2', 5: '2½', 6: '3' };
-  const EIGHTHS = { h: 4, q: 2, 8: 1, hd: 6, qr: 2 };
+  const FRAC = { 1: '½', 2: '1', 3: '1½', 4: '2', 5: '2½', 6: '3', 7: '3½', 8: '4', 9: '4½', 10: '5' };
+  const EIGHTHS = { h: 4, q: 2, 8: 1, hd: 6, qd: 3, qr: 2 };
+  // Hard mode rhythm groups: syncopation (short-long-short) and dotted-quarter + eighth.
+  const GROUPS = { syn: ['8', 'q', '8'], dot: ['qd', '8'] };
 
-  function fillMeasure(eighths, adv) {
+  function fillMeasure(eighths, adv, hard) {
     const out = [];
     let rem = eighths;
     while (rem > 0) {
-      const opts = ['h', 'q', 'q', 'qr', '8', 'hd'].filter((d) => EIGHTHS[d] <= rem && (d !== '8' || adv || rem >= 2));
+      const opts = ['h', 'q', 'q', 'qr', '8', 'hd', ...(hard ? ['syn', 'syn', 'dot'] : [])]
+        .filter((d) => (GROUPS[d] ? 4 : EIGHTHS[d]) <= rem && (d !== '8' || adv || rem >= 2));
       const d = rand(opts);
+      if (GROUPS[d]) { out.push(...GROUPS[d]); rem -= 4; }
       // keep eighths in beamable pairs
-      if (d === '8' && rem >= 2) { out.push(d, d); rem -= 2; } else { out.push(d); rem -= EIGHTHS[d]; }
+      else if (d === '8' && rem >= 2) { out.push(d, d); rem -= 2; } else { out.push(d); rem -= EIGHTHS[d]; }
     }
     return out;
   }
 
-  function countQuestion(it, adv) {
+  function countQuestion(it, adv, hard) {
     if (it.kind === 'sig') {
       const [top, bottom] = it.sig.split('/');
       const beatNote = { 2: 'Half note', 4: 'Quarter note', 8: 'Eighth note' }[bottom];
       const hint = `Top number = beats per measure (${top}). Bottom number = which note gets one beat (${bottom} → ${beatNote.toLowerCase()}).`;
       const prompt = { type: 'staff', clef: 'treble', timeSig: it.sig, notes: [] };
       return Math.random() < 0.5
-        ? { prompt, ask: 'How many beats per measure?', choices: pickRandom(top, ['2', '3', '4', '6', '8']), correct: top, hint }
+        ? { prompt, ask: 'How many beats per measure?', choices: pickRandom(top, ['2', '3', '4', '5', '6', '7', '8', '9', '12']), correct: top, hint }
         : { prompt, ask: 'Which note gets one beat?', choices: ['Half note', 'Quarter note', 'Eighth note'], correct: beatNote, hint };
     }
     const top = +it.sig[0];
     const missing = rand(adv ? [1, 2, 3, 4] : [2, 4]);
-    const durs = fillMeasure(top * 2 - missing, adv);
+    const durs = fillMeasure(top * 2 - missing, adv, hard);
     const notes = durs.map((d) => ({ keys: [d === 'qr' ? 'b/4' : rand(['g/4', 'a/4', 'b/4', 'c/5', 'd/5'])], dur: d }));
+    // Hard mode: tie some neighbouring notes. Ties don't change the count, they just make it harder to read.
+    if (hard) {
+      notes.forEach((x, i) => {
+        const nx = notes[i + 1];
+        if (nx && !x.dur.includes('r') && !nx.dur.includes('r') && Math.random() < 0.35) {
+          x.tie = true;
+          nx.keys = x.keys;
+        }
+      });
+    }
+    const tieTip = notes.some((x) => x.tie) ? ' Ties join notes but each note still counts its own beats.' : '';
     const counted = durs.map((d) => FRAC[EIGHTHS[d]]).join(' + ');
     return {
       prompt: { type: 'staff', clef: 'treble', timeSig: it.sig, notes },
       ask: 'How many beats are missing?',
       choices: pickRandom(FRAC[missing], ['½', '1', '1½', '2', '3']),
       correct: FRAC[missing],
-      hint: `${it.sig} needs ${top} beats. You see ${counted} = ${FRAC[top * 2 - missing]}. Missing ${FRAC[missing]}.`,
+      hint: `${it.sig} needs ${top} beats. You see ${counted} = ${FRAC[top * 2 - missing]}. Missing ${FRAC[missing]}.${tieTip}`,
     };
   }
 
@@ -277,16 +326,29 @@ const MM = (() => {
   const FLATS = 'BEADGCF';
   const KEYS = { C: 0, G: 1, D: 2, A: 3, E: 4, B: 5, 'F#': 6, 'C#': 7, F: -1, Bb: -2, Eb: -3, Ab: -4, Db: -5, Gb: -6, Cb: -7 };
   const keyName = (k) => k.replace('#', '♯').replace('b', '♭') + ' major';
+  // Relative minor = 3 half steps below the major key; same key signature.
+  const REL_MINOR = { C: 'A', G: 'E', D: 'B', A: 'F♯', E: 'C♯', B: 'G♯', 'F#': 'D♯', 'C#': 'A♯', F: 'D', Bb: 'G', Eb: 'C', Ab: 'F', Db: 'B♭', Gb: 'E♭', Cb: 'A♭' };
+  const minorName = (k) => `${REL_MINOR[k]} minor`;
 
-  function keySigQuestion(it, adv) {
+  function keySigQuestion(it, adv, hard) {
     const n = KEYS[it.k];
     const list = (n > 0 ? SHARPS : FLATS).slice(0, Math.abs(n)).split('').map((l) => l + (n > 0 ? '♯' : '♭'));
     let hint = 'No sharps or flats = C major.';
     if (n > 0) hint = `Sharps: ${list.join(' ')}. Last sharp (${list.at(-1)}) + a half step up = ${keyName(it.k)}. Order: Father Charles Goes Down And Ends Battle.`;
     if (n === -1) hint = 'One flat (B♭) = F major — memorize this one.';
     if (n < -1) hint = `Flats: ${list.join(' ')}. The second-to-last flat (${list.at(-2)}) names the key → ${keyName(it.k)}.`;
+    const prompt = { type: 'staff', clef: 'treble', keySig: it.k, notes: [] };
+    if (hard && Math.random() < 0.5) {
+      return {
+        prompt,
+        ask: 'Which minor key?',
+        choices: pickRandom(minorName(it.k), Object.keys(REL_MINOR).map(minorName)),
+        correct: minorName(it.k),
+        hint: `${hint} Its relative minor is 3 half steps down: ${minorName(it.k)}.`,
+      };
+    }
     return {
-      prompt: { type: 'staff', clef: 'treble', keySig: it.k, notes: [] },
+      prompt,
       ask: 'Which major key?',
       choices: pickRandom(keyName(it.k), keySigPool(adv).map((x) => keyName(x.k))),
       correct: keyName(it.k),
@@ -297,9 +359,10 @@ const MM = (() => {
     Object.keys(KEYS).filter((k) => adv || Math.abs(KEYS[k]) <= 4).map((k) => ({ id: `key:${k}`, k, label: keyName(k) }));
 
   // ---------- Ear ----------
-  function earQuestion(it, adv) {
-    const r = 48 + Math.floor(Math.random() * 12);
-    const keys = [r, r + QUAL[it.q].st[0], r + QUAL[it.q].st[1]];
+  function earQuestion(it, adv, hard) {
+    const r = (hard ? 40 : 48) + Math.floor(Math.random() * (hard ? 24 : 12));
+    let keys = [r, r + QUAL[it.q].st[0], r + QUAL[it.q].st[1]];
+    if (hard) for (let i = rand([0, 1, 2]); i > 0; i--) keys = [...keys.slice(1), keys[0] + 12]; // inversion
     const labels = (adv ? ['maj', 'min', 'dim', 'aug'] : ['maj', 'min']).map((q) => QUAL[q].label);
     return {
       prompt: { type: 'ear' },
@@ -317,7 +380,7 @@ const MM = (() => {
   const DECKS = {
     treble: {
       title: 'Treble clef', sub: 'Read notes, right hand', piano: range(48, 83),
-      pool: (adv) => staffPool('treble', -4, 11, adv), make: staffNoteQuestion,
+      pool: (adv, hard) => staffPool('treble', hard ? -6 : -4, 11, adv), make: staffNoteQuestion,
       learn: [
         'The treble clef curls around the G line — line 2.',
         'Lines bottom→top: E G B D F — "Every Good Boy Does Fine".',
@@ -331,7 +394,7 @@ const MM = (() => {
     },
     bass: {
       title: 'Bass clef', sub: 'Read notes, left hand', piano: range(36, 71),
-      pool: (adv) => staffPool('bass', -4, 12, adv), make: staffNoteQuestion,
+      pool: (adv, hard) => staffPool('bass', -4, hard ? 15 : 12, adv), make: staffNoteQuestion,
       learn: [
         'The two dots of the bass clef sit around the F line — line 4.',
         'Lines bottom→top: G B D F A — "Good Boys Do Fine Always".',
@@ -345,7 +408,7 @@ const MM = (() => {
     },
     grand: {
       title: 'Both clefs', sub: 'Treble + bass mixed', piano: range(48, 83),
-      pool: (adv) => [...staffPool('treble', -2, 8, adv), ...staffPool('bass', 3, 10, adv)], make: staffNoteQuestion,
+      pool: (adv, hard) => [...staffPool('treble', hard ? -4 : -2, hard ? 11 : 8, adv), ...staffPool('bass', 3, hard ? 12 : 10, adv)], make: staffNoteQuestion,
       learn: ['Check the clef FIRST, then the note.', 'Treble lines: E G B D F. Bass lines: G B D F A.', 'Both clefs meet at Middle C.'],
     },
     chords: {
@@ -383,7 +446,7 @@ const MM = (() => {
     },
     values: {
       title: 'Note values', sub: 'Notes, rests, beats',
-      pool: () => VALUES.map((v) => ({ id: `val:${v.dur}`, v, label: v.label })), make: valueQuestion,
+      pool: (adv, hard) => [...VALUES, ...(hard ? VALUES_HARD : [])].map((v) => ({ id: `val:${v.label}`, v, label: v.label })), make: valueQuestion,
       learn: [
         'Whole = 4 beats, half = 2, quarter = 1, eighth = ½, sixteenth = ¼.',
         'Each flag cuts the value in half. A dot adds half the value.',
@@ -392,9 +455,10 @@ const MM = (() => {
     },
     count: {
       title: 'Rhythm & time', sub: 'Count beats in a measure',
-      pool: (adv) => [
-        ...['4/4', '3/4', '2/4'].map((sig) => ({ id: `miss:${sig}`, kind: 'miss', sig, label: `Count ${sig}` })),
-        ...['2/4', '3/4', '4/4', '6/8', '2/2', ...(adv ? ['3/8', '9/8', '3/2'] : [])].map((sig) => ({ id: `sig:${sig}`, kind: 'sig', sig, label: `Time ${sig}` })),
+      pool: (adv, hard) => [
+        ...['4/4', '3/4', '2/4', ...(hard ? ['5/4'] : [])].map((sig) => ({ id: `miss:${sig}`, kind: 'miss', sig, label: `Count ${sig}` })),
+        ...['2/4', '3/4', '4/4', '6/8', '2/2', ...(adv ? ['3/8', '9/8', '3/2'] : []), ...(hard ? ['5/4', '7/8', '12/8', '6/4'] : [])]
+          .map((sig) => ({ id: `sig:${sig}`, kind: 'sig', sig, label: `Time ${sig}` })),
       ],
       make: countQuestion,
       learn: [

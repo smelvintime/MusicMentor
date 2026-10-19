@@ -34,6 +34,11 @@
   .seg { display: flex; background: var(--bg); border-radius: 999px; padding: 3px; }
   .seg button { padding: 6px 14px; border-radius: 999px; color: var(--dim); font-size: 14px; font-variant-numeric: tabular-nums; }
   .seg button.on { background: var(--card2); color: var(--accent); }
+  .switch { flex: none; width: 51px; height: 31px; border-radius: 999px; background: var(--card2); position: relative; transition: background .2s; margin-left: 12px; }
+  .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; transition: transform .2s; }
+  .switch.on { background: var(--bad); }
+  .switch.on::after { transform: translateX(20px); }
+  .set-row .muted { font-size: 12px; }
   .mix { width: 100%; display: flex; align-items: center; justify-content: space-between; text-align: left;
     background: linear-gradient(135deg, #2d6fd6, #4a9eff); border-radius: 20px; padding: 18px; margin-bottom: 26px; }
   .mix b { font-size: 19px; }
@@ -176,6 +181,8 @@
         <button data-len="10">10</button><button data-len="20">20</button><button data-len="50">50</button><button data-len="0">∞</button>
       </div>
     </div>
+    <div class="set-row"><div>Hard mode<div class="muted">Ledger lines, inversions, ties, syncopation, minor keys</div></div>
+      <button class="switch" id="hard" role="switch" aria-label="Hard mode"></button></div>
   </div>
   <button class="mix" data-deck="mix">
     <div><b id="mixTitle">Mix everything</b><div class="muted" id="mixSub"></div></div>

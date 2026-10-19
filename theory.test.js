@@ -23,13 +23,13 @@ assert.match(staffHint('bass', note('A', '', 2)), /Space 1.*→ A/);
 for (const [id, deck] of Object.entries(DECKS)) {
   // Keyboards show whole octaves C..B so the left edge is always a recognizable C.
   if (deck.piano) assert.ok(deck.piano.lo % 12 === 0 && deck.piano.hi % 12 === 11, `${id} keyboard not C..B`);
-  for (const adv of [false, true]) {
-    const pool = deck.pool(adv);
+  for (const [adv, hard] of [[false, false], [true, false], [true, true]]) {
+    const pool = deck.pool(adv, hard);
     assert.ok(pool.length > 1, `${id} pool`);
     assert.strictEqual(new Set(pool.map((i) => i.id)).size, pool.length, `${id} unique ids`);
     for (const it of pool) {
       for (let k = 0; k < 4; k++) {
-        const q = deck.make(it, adv);
+        const q = deck.make(it, adv, hard);
         assert.ok(q.choices || q.keys, `${id} answerable`);
         if (q.choices) assert.ok(q.choices.includes(q.correct), `${id} ${it.id}: ${q.correct} not in ${q.choices}`);
         if (q.choices) assert.strictEqual(new Set(q.choices).size, q.choices.length, `${id} dup choices`);
@@ -44,9 +44,21 @@ for (const [id, deck] of Object.entries(DECKS)) {
   }
 }
 
-// Measures fill exactly.
-for (let i = 0; i < 200; i++) {
-  const n = 1 + Math.floor(Math.random() * 7);
-  assert.strictEqual(MM.fillMeasure(n, true).reduce((s, d) => s + MM.EIGHTHS[d], 0), n);
+// Measures fill exactly, including hard-mode syncopation groups.
+for (const hard of [false, true]) {
+  for (let i = 0; i < 300; i++) {
+    const n = 1 + Math.floor(Math.random() * 9);
+    assert.strictEqual(MM.fillMeasure(n, true, hard).reduce((s, d) => s + MM.EIGHTHS[d], 0), n);
+  }
 }
+
+// Hard mode actually gets harder.
+const hardTreble = DECKS.treble.pool(true, true).length > DECKS.treble.pool(true, false).length;
+assert.ok(hardTreble, 'hard treble adds ledger notes');
+const sawInversion = Array.from({ length: 200 }, () => DECKS.chords.make(DECKS.chords.pool(true)[0], true, true))
+  .some((q) => q.hint.includes('inversion'));
+assert.ok(sawInversion, 'hard chords include inversions');
+const sawTie = Array.from({ length: 200 }, () => DECKS.count.make({ kind: 'miss', sig: '4/4' }, true, true))
+  .some((q) => q.prompt.notes.some((x) => x.tie));
+assert.ok(sawTie, 'hard rhythm includes ties');
 console.log('theory ok');
