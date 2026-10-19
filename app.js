@@ -32,10 +32,28 @@ function load(m) {
 const nearest = (m) => SAMPLE_KEYS.reduce((a, b) => (Math.abs(b - m) < Math.abs(a - m) ? b : a));
 const preload = () => SAMPLE_KEYS.forEach((m) => load(m).catch(() => {}));
 
+// Only one sound at a time: a new sound (or a new card) quickly fades out the previous one.
+let voices = [];
+let playGen = 0;
+function silence() {
+  playGen++; // also cancels a play() still waiting on samples
+  if (!ac) return;
+  const t = ac.currentTime;
+  voices.forEach(({ src, g }) => {
+    g.gain.cancelScheduledValues(t);
+    g.gain.setTargetAtTime(0, t, 0.015);
+    src.stop(t + 0.1);
+  });
+  voices = [];
+}
+
 async function play(midis, force) {
+  silence();
   if (!midis || (!S.sound && !force)) return;
+  const gen = playGen;
   try {
     const notes = await Promise.all(midis.map(async (m) => [m, nearest(m), await load(nearest(m))]));
+    if (gen !== playGen) return;
     const ctx = audio();
     const t = ctx.currentTime;
     notes.forEach(([m, base, buf]) => {
@@ -48,6 +66,7 @@ async function play(midis, force) {
       src.connect(g).connect(ctx.destination);
       src.start(t);
       src.stop(t + 3);
+      voices.push({ src, g });
     });
   } catch (e) {
     console.error('Piano sample failed to load', e);
@@ -119,6 +138,7 @@ function drawPiano(el, { lo, hi }, marks = {}, onTap) {
 let deckId, q, item, n, results, mode, sel, locked, t0, streak, lastId;
 
 function show(id) {
+  silence();
   ['home', 'quiz', 'done'].forEach((s) => { $(s).hidden = s !== id; });
   $('sheet').hidden = true;
 }
@@ -141,6 +161,7 @@ function weighted(pool) {
 }
 
 function nextQ() {
+  silence();
   if (n >= S.len) return finish();
   const did = deckId === 'mix' ? MM.shuffle(Object.keys(DECKS))[0] : deckId;
   const pool = DECKS[did].pool(S.adv);
