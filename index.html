@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>MusicMentor</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♪</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' rx='6' fill='%234a9eff'/><ellipse cx='9' cy='16.5' rx='3' ry='2.3' fill='white'/><path d='M11.6 16V6l5 1.6' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round'/></svg>">
 <style>
   :root {
     --bg: #0d0d0f; --card: #1e1e21; --card2: #2a2a2e; --ink: #f2f2f4; --dim: #8e8e93;
@@ -51,9 +51,36 @@
   .prompt { width: 100%; display: flex; justify-content: center; }
   .prompt svg { width: 100%; max-height: 280px; filter: invert(.95); }
   .bigtext { font-size: 72px; font-weight: 700; letter-spacing: -1px; }
-  .ear { font-size: 64px; }
+  .ear svg { width: 72px; height: 72px; color: var(--ink); }
   .hint { background: var(--card2); border-radius: 12px; padding: 10px 12px; font-size: 14px; width: 100%; }
-  .streak { font-size: 13px; color: var(--accent); min-height: 18px; }
+  .streak { width: 100%; min-height: 60px; }
+  /* Streak box: copied from the blackjack trainer */
+  .streak-box { position: relative; z-index: 1; background: rgba(31, 41, 55, .8); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    padding: 16px; border-radius: 12px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, .25);
+    display: flex; align-items: center; justify-content: center; gap: 8px; color: #fff; font-size: 20px; font-weight: 700; line-height: 28px; }
+  .streak-box svg { width: 24px; height: 24px; }
+  .streak-box .lost { color: #9ca3af; }
+  @keyframes long-pulse-burst {
+    0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(147, 197, 253, 0); }
+    50% { transform: scale(1.15); box-shadow: 0 0 30px 10px rgba(147, 197, 253, .7); }
+    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(147, 197, 253, 0); }
+  }
+  .burst { animation: long-pulse-burst 1.5s ease-in-out forwards; }
+  @keyframes wash-away { from { opacity: 1; transform: translateY(0); filter: blur(0); } to { opacity: 0; transform: translateY(40px); filter: blur(4px); } }
+  .wash { animation: wash-away 1.5s ease-in forwards; }
+  #announce { position: fixed; inset: 0; background: rgba(0, 0, 0, .8); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
+    z-index: 100; display: flex; align-items: center; justify-content: center; animation: announce-fade-in .3s ease-out; }
+  #announce[hidden] { display: none; }
+  #announce .number { font-size: 96px; font-weight: 900; animation: announce-text-zoom .7s .2s cubic-bezier(.25, .46, .45, .94) both; }
+  @keyframes announce-fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes announce-text-zoom { from { transform: scale(.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  @keyframes slow-pulse { 50% { opacity: .7; transform: scale(1.05); } }
+  @keyframes rainbow-shift { to { background-position: 200% center; } }
+  .announce-100 .number { color: #93c5fd; text-shadow: 0 0 15px #60a5fa, 0 0 25px #3b82f6; }
+  .announce-200 .number { color: #d8b4fe; text-shadow: 0 0 15px #a855f7, 0 0 30px #a855f7; animation: announce-text-zoom .7s .2s both, slow-pulse 2.5s 1s ease-in-out infinite; }
+  .announce-300 .number { background-image: linear-gradient(to right, #ef4444, #f97316, #eab308, #84cc16, #22c55e, #14b8a6, #06b6d4, #3b82f6, #8b5cf6, #d946ef, #ef4444);
+    background-size: 200% auto; -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: announce-text-zoom .7s .2s both, rainbow-shift 3s linear infinite; }
 
   .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .choices.letters { grid-template-columns: repeat(7, 1fr); gap: 6px; }
@@ -146,6 +173,8 @@
     <button class="next" id="again">Again</button>
   </div>
 </div>
+
+<div id="announce" hidden></div>
 
 <div class="sheet" id="sheet" hidden><div id="sheetBody"></div></div>
 

@@ -300,7 +300,7 @@ const MM = (() => {
       title: 'Treble clef', sub: 'Read notes, right hand', piano: range(55, 86),
       pool: (adv) => staffPool('treble', -4, 12, adv), make: staffNoteQuestion,
       learn: [
-        'The treble clef (𝄞) curls around the G line — line 2.',
+        'The treble clef curls around the G line — line 2.',
         'Lines bottom→top: E G B D F — "Every Good Boy Does Fine".',
         'Spaces bottom→top: F A C E — spells FACE.',
         'Middle C sits on one ledger line below the staff.',
@@ -314,7 +314,7 @@ const MM = (() => {
       title: 'Bass clef', sub: 'Read notes, left hand', piano: range(36, 64),
       pool: (adv) => staffPool('bass', -4, 12, adv), make: staffNoteQuestion,
       learn: [
-        'The bass clef (𝄢) dots sit around the F line — line 4.',
+        'The two dots of the bass clef sit around the F line — line 4.',
         'Lines bottom→top: G B D F A — "Good Boys Do Fine Always".',
         'Spaces bottom→top: A C E G — "All Cows Eat Grass".',
         'Middle C sits on one ledger line ABOVE the bass staff.',

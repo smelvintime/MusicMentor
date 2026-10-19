@@ -3,6 +3,13 @@ const { DECKS, isBlack } = MM;
 const VF = Vex.Flow;
 const $ = (id) => document.getElementById(id);
 
+// Icons are inline SVG so they look identical on every device (no emoji fonts).
+const ICON = {
+  flame: '<svg viewBox="0 0 24 24"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" fill="#fbbf24" stroke="#f97316" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  heartbreak: '<svg viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" fill="#ef4444" stroke="#ef4444" stroke-width="1.5" stroke-linejoin="round"/><path d="m12 13-1-1 2-2-3-3 2-2" fill="none" stroke="#1f2937" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  speaker: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/></svg>',
+};
+
 // ---------- persistence ----------
 const S = (() => {
   const base = { w: {}, s: {}, adv: false, len: 20, sound: true, mode: {} };
@@ -135,7 +142,8 @@ function drawPiano(el, { lo, hi }, marks = {}, onTap) {
 }
 
 // ---------- quiz state ----------
-let deckId, q, item, n, results, mode, sel, locked, t0, streak, lastId;
+let deckId, q, item, n, results, mode, sel, locked, t0, lastId;
+let streak = 0;
 
 function show(id) {
   silence();
@@ -148,7 +156,6 @@ function start(id) {
   deckId = id;
   n = 0;
   results = [];
-  streak = 0;
   show('quiz');
   nextQ();
   if (id !== 'mix' && !S.s[id]) openLearn(id);
@@ -193,7 +200,7 @@ function render() {
   if (p.type === 'staff') drawStaff(el, p);
   if (p.type === 'piano') drawPiano(el, deck.piano, Object.fromEntries(p.highlight.map((m) => [m, 'hl'])));
   if (p.type === 'text') el.innerHTML = `<div class="bigtext">${p.text}</div>`;
-  if (p.type === 'ear') el.innerHTML = '<div class="ear">🔊</div>';
+  if (p.type === 'ear') el.innerHTML = `<div class="ear">${ICON.speaker}</div>`;
   if (q.autoplay) play(q.play, true);
   renderAnswer();
 }
@@ -254,14 +261,48 @@ function settle(ok) {
   const st = S.s[q.deck] || { n: 0, c: 0 };
   S.s[q.deck] = { n: st.n + 1, c: st.c + (ok ? 1 : 0) };
   save();
+  const prev = streak;
   streak = ok ? streak + 1 : 0;
-  $('streak').textContent = streak >= 3 ? `🔥 ${streak} in a row` : '';
+  renderStreak(prev);
   if (!q.autoplay) play(q.play); // ear cards were already heard
   if (ok) return setTimeout(nextQ, 450);
   $('hint').textContent = q.hint;
   $('hint').hidden = false;
   $('next').hidden = false;
   $('tabs').hidden = true;
+}
+
+// ---------- streak (same behavior as the blackjack trainer) ----------
+function renderStreak(prev) {
+  const el = $('streak');
+  if (streak === 0 && prev >= 2) {
+    el.innerHTML = `<div class="streak-box wash">${ICON.heartbreak}<span class="lost">Streak Lost</span></div>`;
+    return;
+  }
+  if (streak < 2) return;
+  let box = el.querySelector('.streak-box:not(.wash)');
+  if (!box) {
+    el.innerHTML = `<div class="streak-box">${ICON.flame}<span></span></div>`;
+    box = el.firstElementChild;
+  }
+  box.querySelector('span').textContent = `${streak} Streak!`;
+  if (streak === 50) {
+    box.classList.remove('burst');
+    void box.offsetWidth; // restart the animation
+    box.classList.add('burst');
+    setTimeout(() => box.classList.remove('burst'), 1500);
+  }
+  if ([100, 200, 300].includes(streak)) announce(streak);
+}
+
+let announceTimer;
+function announce(num) {
+  const a = $('announce');
+  a.className = `announce-${num}`;
+  a.innerHTML = `<div class="number">${num}</div>`;
+  a.hidden = false;
+  clearTimeout(announceTimer);
+  announceTimer = setTimeout(() => { a.hidden = true; }, 3500);
 }
 
 function finish() {
@@ -321,6 +362,7 @@ $('card').onclick = () => {
   if (q.prompt.type === 'ear') play(q.play, true);
   else if (locked && !$('next').hidden) nextQ();
 };
+$('announce').onclick = () => { $('announce').hidden = true; };
 const syncSound = () => $('sound').classList.toggle('off', !S.sound);
 $('sound').onclick = () => { S.sound = !S.sound; save(); syncSound(); };
 $('tabs').onclick = (e) => {
