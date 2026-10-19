@@ -156,6 +156,8 @@ function start(id) {
   deckId = id;
   n = 0;
   results = [];
+  $('streak').replaceChildren();
+  if (streak >= 2) renderStreak(streak);
   show('quiz');
   nextQ();
   if (id !== 'mix' && !S.s[id]) openLearn(id);
@@ -277,6 +279,8 @@ function renderStreak(prev) {
   const el = $('streak');
   if (streak === 0 && prev >= 2) {
     el.innerHTML = `<div class="streak-box wash">${ICON.heartbreak}<span class="lost">Streak Lost</span></div>`;
+    // Remove it once faded, or re-showing the quiz screen would replay the animation.
+    el.firstElementChild.addEventListener('animationend', (e) => e.target.remove());
     return;
   }
   if (streak < 2) return;
@@ -286,13 +290,13 @@ function renderStreak(prev) {
     box = el.firstElementChild;
   }
   box.querySelector('span').textContent = `${streak} Streak!`;
-  if (streak === 50) {
+  if (streak === 50 && streak > prev) {
     box.classList.remove('burst');
     void box.offsetWidth; // restart the animation
     box.classList.add('burst');
     setTimeout(() => box.classList.remove('burst'), 1500);
   }
-  if ([100, 200, 300].includes(streak)) announce(streak);
+  if (streak > prev && [100, 200, 300].includes(streak)) announce(streak);
 }
 
 let announceTimer;
