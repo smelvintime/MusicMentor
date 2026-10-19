@@ -442,8 +442,6 @@ const PREVIEW = {
 function renderHome() {
   $('adv').classList.toggle('on', S.adv);
   document.querySelectorAll('[data-len]').forEach((b) => b.classList.toggle('on', +b.dataset.len === S.len));
-  const all = Object.values(S.s).reduce((a, s) => ({ n: a.n + s.n, c: a.c + s.c }), { n: 0, c: 0 });
-  $('totals').textContent = all.n ? `${all.n.toLocaleString()} reps · ${Math.round((all.c / all.n) * 100)}% accuracy` : 'Pick a deck to start';
   const meter = (id) => {
     const s = S.s[id];
     if (!s) return '<div class="meter">New</div>';
