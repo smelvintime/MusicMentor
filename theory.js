@@ -375,6 +375,64 @@ const MM = (() => {
     };
   }
 
+  // ---------- Pitch (by ear) ----------
+  const WHITE_C4 = [60, 62, 64, 65, 67, 69, 71];
+  const NOTE_GAP = 0.7; // seconds between the two notes of an interval
+
+  function perfectPitchQuestion(it, adv, hard) {
+    const m = 12 * (hard ? rand([4, 5, 6]) : 5) + it.pc; // normal: C4–B4; hard: C3–B5
+    return {
+      prompt: { type: 'ear' },
+      ask: 'Which note is this? (tap card to replay)',
+      keys: [m],
+      exact: false,
+      hint: `That was ${pcName(m)}. Tap the card to hear it again and hold it in your head next to the key you picked.`,
+      play: [m],
+      autoplay: true,
+    };
+  }
+
+  // [name, a song whose first two notes make this interval going up]
+  const INTERVALS = {
+    1: ['Minor 2nd', 'Jaws'], 2: ['Major 2nd', 'Happy Birthday'], 3: ['Minor 3rd', 'Greensleeves'],
+    4: ['Major 3rd', 'When the Saints Go Marching In'], 5: ['Perfect 4th', 'Here Comes the Bride'],
+    6: ['Tritone', 'The Simpsons theme'], 7: ['Perfect 5th', 'Twinkle Twinkle Little Star'],
+    8: ['Minor 6th', 'The Entertainer (2nd to 3rd note)'], 9: ['Major 6th', 'My Bonnie Lies Over the Ocean'],
+    10: ['Minor 7th', 'Star Trek theme'], 11: ['Major 7th', 'Take On Me (chorus)'], 12: ['Octave', 'Somewhere Over the Rainbow'],
+  };
+
+  function intervalPool(adv, hard) {
+    const steps = hard ? Object.keys(INTERVALS).map(Number) : [1, 2, 3, 4, 5, 7, 12];
+    const up = steps.map((st) => ({ id: `int:${st}`, st, label: INTERVALS[st][0] }));
+    const down = hard ? steps.map((st) => ({ id: `int:-${st}`, st: -st, label: `${INTERVALS[st][0]} down` })) : [];
+    return [...up, ...down];
+  }
+
+  function relativePitchQuestion(it, adv, hard) {
+    const size = Math.abs(it.st);
+    const a = rand(WHITE_C4) + (it.st < 0 ? 12 : 0); // both notes stay within C4–B5
+    const b = a + it.st;
+    const [label, song] = INTERVALS[size];
+    const hint = `${label}${it.st < 0 ? ' going down' : ''} = ${size} half step${size > 1 ? 's' : ''}. ${it.st > 0 ? `Think "${song}".` : `Same distance as "${song}", just downward.`}`;
+    const shared = { hint, play: [a, b], gap: NOTE_GAP, autoplay: true };
+    if (Math.random() < 0.5) {
+      return {
+        ...shared,
+        prompt: { type: 'ear' },
+        ask: 'Name the interval (tap card to replay)',
+        choices: pickRandom(it.label, intervalPool(adv, hard).map((i) => i.label)),
+        correct: it.label,
+      };
+    }
+    return {
+      ...shared,
+      prompt: { type: 'text', text: `${pcName(a)} → ?` },
+      ask: 'Tap the second note you hear (tap card to replay)',
+      keys: [b],
+      exact: false,
+    };
+  }
+
   // ---------- Decks ----------
   const range = (lo, hi) => ({ lo, hi });
   const DECKS = {
@@ -482,6 +540,30 @@ const MM = (() => {
       make: earQuestion,
       learn: CHORD_GUIDE,
       examples: CHORD_EXAMPLES,
+    },
+    perfect: {
+      title: 'Perfect pitch', sub: 'Name a note by ear', piano: range(60, 83),
+      pool: () => Array.from({ length: 12 }, (_, pc) => ({ id: `pp:${pc}`, pc, label: pcName(60 + pc) })),
+      make: perfectPitchQuestion,
+      learn: [
+        'One note plays with no reference. Tap the key you think it is, in any octave.',
+        'Listen to its color: low notes feel dark and warm, high notes bright and thin. Every note has its own shade.',
+        'Start with one anchor note (C or A). Hum it during the day and check yourself here.',
+        'Missed it? Tap the card to hear it again before you continue.',
+        'This builds slowly for most adults. Short daily sessions beat long ones.',
+        'Hard mode spreads the notes over three octaves.',
+      ],
+    },
+    relative: {
+      title: 'Relative pitch', sub: 'Hear the distance between notes', piano: range(60, 83),
+      pool: intervalPool, make: relativePitchQuestion,
+      learn: [
+        'Two notes play one after the other. Name the distance between them, or tap the second note when you\'re given the first.',
+        'Each interval has a song that starts with it. Sing the start of the song in your head and match it:',
+        ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((st) => `<b>${INTERVALS[st][0]}</b> (${st} half step${st > 1 ? 's' : ''}): ${INTERVALS[st][1]}`),
+        'Hard mode adds every interval, and intervals going down.',
+      ],
+      examples: [1, 2, 3, 4, 5, 7, 12].map((st) => ({ label: INTERVALS[st][0], notes: INTERVALS[st][1], keys: [60, 60 + st], gap: NOTE_GAP })),
     },
   };
 

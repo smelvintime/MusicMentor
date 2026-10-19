@@ -56,7 +56,8 @@ function silence() {
   voices = [];
 }
 
-async function play(midis, force) {
+// gap > 0 plays the notes one after another (melodic interval) instead of together.
+async function play(midis, force, gap = 0) {
   silence();
   if (!midis || (!S.sound && !force)) return;
   const gen = playGen;
@@ -65,16 +66,19 @@ async function play(midis, force) {
     if (gen !== playGen) return;
     const ctx = audio();
     const t = ctx.currentTime;
-    notes.forEach(([m, base, buf]) => {
+    notes.forEach(([m, base, buf], i) => {
       const src = ctx.createBufferSource();
       const g = ctx.createGain();
+      const at = t + i * gap;
+      const handOff = gap && i < notes.length - 1; // fade as the next note starts
+      const end = handOff ? at + gap : at + 1.5;
       src.buffer = buf;
       src.playbackRate.value = 2 ** ((m - base) / 12);
-      g.gain.setValueAtTime(0.8 / Math.sqrt(midis.length), t);
-      g.gain.setTargetAtTime(0, t + 1.5, 0.3);
+      g.gain.setValueAtTime(gap ? 0.8 : 0.8 / Math.sqrt(midis.length), at);
+      g.gain.setTargetAtTime(0, end, handOff ? 0.08 : 0.3);
       src.connect(g).connect(ctx.destination);
-      src.start(t);
-      src.stop(t + 3);
+      src.start(at);
+      src.stop(end + 1.5);
       voices.push({ src, g });
     });
   } catch (e) {
@@ -217,7 +221,7 @@ function render() {
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
 
   drawPrompt($('prompt'), q.prompt, deck);
-  if (q.autoplay) play(q.play, true);
+  if (q.autoplay) play(q.play, true, q.gap);
   renderAnswer();
 }
 
@@ -368,7 +372,7 @@ const HISTORY_MAX = 50; // newest first; capped so infinite mode can't grow it f
 let history = [];
 function logMiss(given) {
   const correct = mode === 'keys' ? q.keys.map(MM.pcName).join(' ') : q.correct;
-  history = [{ deck: q.deck, prompt: q.prompt, ask: q.ask, given, correct, hint: q.hint, play: q.play }, ...history].slice(0, HISTORY_MAX);
+  history = [{ deck: q.deck, prompt: q.prompt, ask: q.ask, given, correct, hint: q.hint, play: q.play, gap: q.gap }, ...history].slice(0, HISTORY_MAX);
 }
 
 function openHistory() {
@@ -384,7 +388,7 @@ function openHistory() {
     row.insertAdjacentHTML('beforeend', `<div class="muted">${h.ask}</div>
       <div class="verdict"><span class="c-bad">${h.given}</span><span class="muted">→</span><span class="c-ok">${h.correct}</span></div>
       <div class="hint">${h.hint}</div>`);
-    if (h.play) row.onclick = () => play(h.play, true);
+    if (h.play) row.onclick = () => play(h.play, true, h.gap);
     body.append(row);
   });
   body.insertAdjacentHTML('beforeend', '<button class="next">Close</button>');
@@ -421,8 +425,8 @@ function openLearn(id) {
       const b = document.createElement('button');
       b.className = 'ex';
       b.innerHTML = `<div class="pv"></div><b>${ex.label}</b><span class="muted">${ex.notes}</span>`;
-      drawPiano(b.querySelector('.pv'), { lo: 60, hi: 71 }, Object.fromEntries(ex.keys.map((m) => [m, 'hl'])));
-      b.onclick = () => play(ex.keys, true);
+      drawPiano(b.querySelector('.pv'), { lo: 60, hi: Math.max(...ex.keys) > 71 ? 83 : 71 }, Object.fromEntries(ex.keys.map((m) => [m, 'hl'])));
+      b.onclick = () => play(ex.keys, true, ex.gap);
       grid.append(b);
     });
   }
@@ -449,7 +453,7 @@ const SECTIONS = [
   ['Read music', ['treble', 'bass', 'grand', 'chords']],
   ['Keyboard', ['pnotes', 'pchords']],
   ['Rhythm & theory', ['values', 'count', 'keysig']],
-  ['Listen', ['ear']],
+  ['Listen', ['ear', 'perfect', 'relative']],
 ];
 const note = (keys, dur = 'w') => ({ keys, dur });
 const PREVIEW = {
@@ -463,6 +467,8 @@ const PREVIEW = {
   pnotes: { type: 'piano', highlight: [64] },
   pchords: { type: 'piano', highlight: [60, 64, 67] },
   ear: { type: 'ear' },
+  perfect: { type: 'ear' },
+  relative: { type: 'piano', highlight: [60, 67] },
 };
 
 function renderHome() {
@@ -515,7 +521,7 @@ $('review').onclick = openHistory;
 $('learnBtn').onclick = () => openLearn(q.deck);
 $('sheet').onclick = (e) => { if (e.target.id === 'sheet' || e.target.matches('.next')) $('sheet').hidden = true; };
 $('card').onclick = () => {
-  if (q.prompt.type === 'ear') play(q.play, true);
+  if (q.autoplay) play(q.play, true, q.gap); // listening cards: tap to hear again
   else if (locked && !$('next').hidden) nextQ();
 };
 $('announce').onclick = () => { $('announce').hidden = true; };
