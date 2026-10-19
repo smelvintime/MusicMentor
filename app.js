@@ -7,12 +7,13 @@ const $ = (id) => document.getElementById(id);
 const ICON = {
   flame: '<svg viewBox="0 0 24 24"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" fill="#fbbf24" stroke="#f97316" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   heartbreak: '<svg viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" fill="#ef4444" stroke="#ef4444" stroke-width="1.5" stroke-linejoin="round"/><path d="m12 13-1-1 2-2-3-3 2-2" fill="none" stroke="#1f2937" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg>',
   speaker: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/></svg>',
 };
 
 // ---------- persistence ----------
 const S = (() => {
-  const base = { w: {}, s: {}, adv: false, len: 20, sound: true, mode: {} };
+  const base = { w: {}, s: {}, adv: false, len: 20, sound: true, mode: {}, pick: [] };
   try { return { ...base, ...JSON.parse(localStorage.getItem('mm')) }; } catch { return base; }
 })();
 const save = () => { try { localStorage.setItem('mm', JSON.stringify(S)); } catch { /* private mode: progress just won't persist */ } };
@@ -177,7 +178,7 @@ function nextQ() {
   silence();
   clearTimeout(advanceTimer);
   if (S.len && n >= S.len) return finish(); // len 0 = infinite
-  const did = deckId === 'mix' ? MM.shuffle(Object.keys(DECKS))[0] : deckId;
+  const did = deckId === 'mix' ? MM.shuffle(mixDecks())[0] : deckId;
   const pool = DECKS[did].pool(S.adv);
   item = weighted(pool.length > 1 ? pool.filter((i) => i.id !== lastId) : pool);
   lastId = item.id;
@@ -374,6 +375,20 @@ function openLearn(id) {
 }
 
 // ---------- home ----------
+// Ticked decks are what "Mix" draws from; none ticked = every deck.
+const mixDecks = () => (S.pick.length ? S.pick : Object.keys(DECKS));
+function syncMix() {
+  const names = S.pick.map((id) => DECKS[id].title);
+  $('mixTitle').textContent = names.length ? `Mix ${names.length} deck${names.length > 1 ? 's' : ''}` : 'Mix everything';
+  $('mixSub').textContent = names.length ? names.join(' · ') : 'Every deck, shuffled — or tick decks below';
+}
+function togglePick(id, el) {
+  S.pick = S.pick.includes(id) ? S.pick.filter((x) => x !== id) : [...S.pick, id];
+  save();
+  el.classList.toggle('on', S.pick.includes(id));
+  el.setAttribute('aria-checked', S.pick.includes(id));
+  syncMix();
+}
 const SECTIONS = [
   ['Read music', ['treble', 'bass', 'grand', 'chords']],
   ['Keyboard', ['pnotes', 'pchords']],
@@ -384,7 +399,7 @@ const note = (keys, dur = 'w') => ({ keys, dur });
 const PREVIEW = {
   treble: { clef: 'treble', notes: [note(['e/5'])] },
   bass: { clef: 'bass', notes: [note(['f/3'])] },
-  grand: { clef: 'treble', notes: [note(['c/4'])] },
+  grand: {}, // drawn as treble / bass in renderHome
   chords: { clef: 'treble', notes: [note(['c/4', 'e/4', 'g/4'])] },
   values: { clef: null, notes: [note(['b/4'], 'h'), note(['b/4'], 'q'), note(['b/4'], '8'), note(['b/4'], '8')] },
   count: { clef: 'treble', timeSig: '3/4', notes: [] },
@@ -409,6 +424,7 @@ function renderHome() {
     <div class="section">${name}</div>
     <div class="decks">${ids.map((id) => `
       <button class="deck" data-deck="${id}">
+        <span class="pick${S.pick.includes(id) ? ' on' : ''}" data-pick="${id}" role="checkbox" aria-checked="${S.pick.includes(id)}" aria-label="Add ${DECKS[id].title} to mix">${ICON.check}</span>
         <div class="pv"></div>
         <b>${DECKS[id].title}</b>
         <div class="muted">${DECKS[id].sub}</div>
@@ -418,16 +434,27 @@ function renderHome() {
   document.querySelectorAll('#decks .pv').forEach((el) => {
     const id = el.closest('[data-deck]').dataset.deck;
     const p = { type: 'staff', ...PREVIEW[id] };
-    drawPrompt(el, p, { piano: { lo: 60, hi: 71 } });
+    if (id === 'grand') {
+      el.innerHTML = '<div></div><span class="slash">/</span><div></div>';
+      drawStaff(el.children[0], { clef: 'treble', notes: [] });
+      drawStaff(el.children[2], { clef: 'bass', notes: [] });
+    } else {
+      drawPrompt(el, p, { piano: { lo: 60, hi: 71 } });
+    }
     // Crop the empty space above/below the staff so the preview reads at tile size.
-    const svg = el.querySelector('svg[viewBox]');
-    if (p.type === 'staff') svg.setAttribute('viewBox', svg.getAttribute('viewBox').replace(/ 0 (\S+) \d+$/, ' 22 $1 96'));
+    if (p.type === 'staff') {
+      el.querySelectorAll('svg[viewBox]').forEach((svg) => svg.setAttribute('viewBox', svg.getAttribute('viewBox').replace(/ 0 (\S+) \d+$/, ' 22 $1 96')));
+    }
   });
+  syncMix();
   show('home');
 }
 
 // ---------- events ----------
-$('home').addEventListener('click', (e) => { const b = e.target.closest('[data-deck]'); if (b) start(b.dataset.deck); });
+$('home').addEventListener('click', (e) => {
+  const pk = e.target.closest('[data-pick]');
+  if (pk) return togglePick(pk.dataset.pick, pk);
+  const b = e.target.closest('[data-deck]'); if (b) start(b.dataset.deck); });
 $('adv').onclick = () => { S.adv = !S.adv; save(); renderHome(); };
 document.querySelectorAll('[data-len]').forEach((b) => { b.onclick = () => { S.len = +b.dataset.len; save(); renderHome(); }; });
 // In infinite mode, leaving shows the round summary instead of dropping the stats.
