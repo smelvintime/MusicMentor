@@ -167,19 +167,29 @@ function start(id) {
   if (id !== 'mix' && !S.s[id]) openLearn(id);
 }
 
-function weighted(pool) {
-  const ws = pool.map((i) => S.w[i.id] ?? 1);
+// Struggle score per card: unseen = 1, each miss doubles it (+1, max 10), fast
+// right answers shrink it (min 0.3). Cards are drawn in proportion to it, so
+// weak spots come up far more often while mastered ones still appear now and then.
+const itemWeight = (i) => S.w[i.id] ?? 1;
+// A deck's struggle = its cards' average, so Mix leans toward your weakest decks too.
+const deckWeight = (id) => {
+  const pool = DECKS[id].pool(S.adv);
+  return pool.reduce((a, i) => a + itemWeight(i), 0) / pool.length;
+};
+
+function weighted(list, weightOf) {
+  const ws = list.map(weightOf);
   let r = Math.random() * ws.reduce((a, b) => a + b, 0);
-  return pool.find((_, i) => (r -= ws[i]) < 0) || pool.at(-1);
+  return list.find((_, i) => (r -= ws[i]) < 0) || list.at(-1);
 }
 
 function nextQ() {
   silence();
   clearTimeout(advanceTimer);
   if (S.len && n >= S.len) return finish(); // len 0 = infinite
-  const did = deckId === 'mix' ? MM.shuffle(mixDecks())[0] : deckId;
+  const did = deckId === 'mix' ? weighted(mixDecks(), deckWeight) : deckId;
   const pool = DECKS[did].pool(S.adv);
-  item = weighted(pool.length > 1 ? pool.filter((i) => i.id !== lastId) : pool);
+  item = weighted(pool.length > 1 ? pool.filter((i) => i.id !== lastId) : pool, itemWeight);
   lastId = item.id;
   q = { ...DECKS[did].make(item, S.adv), deck: did };
   n++;
@@ -454,12 +464,6 @@ const PREVIEW = {
 function renderHome() {
   $('adv').classList.toggle('on', S.adv);
   document.querySelectorAll('[data-len]').forEach((b) => b.classList.toggle('on', +b.dataset.len === S.len));
-  const meter = (id) => {
-    const s = S.s[id];
-    if (!s) return '<div class="meter">New</div>';
-    const pct = Math.round((s.c / s.n) * 100);
-    return `<div class="meter"><i><span style="width:${pct}%"></span></i>${pct}%</div>`;
-  };
   $('decks').innerHTML = SECTIONS.map(([name, ids]) => `
     <div class="section">${name}</div>
     <div class="decks">${ids.map((id) => `
@@ -468,7 +472,6 @@ function renderHome() {
         <div class="pv"></div>
         <b>${DECKS[id].title}</b>
         <div class="muted">${DECKS[id].sub}</div>
-        ${meter(id)}
       </button>`).join('')}
     </div>`).join('');
   document.querySelectorAll('#decks .pv').forEach((el) => {
