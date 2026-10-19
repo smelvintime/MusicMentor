@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d0d0f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>MusicMentor</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♪</text></svg>">
+<style>
+  :root {
+    --bg: #0d0d0f; --card: #1e1e21; --card2: #2a2a2e; --ink: #f2f2f4; --dim: #8e8e93;
+    --accent: #4a9eff; --ok: #34c759; --bad: #ff453a; --hl: #ef5350;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; touch-action: manipulation; }
+  [hidden] { display: none !important; }
+  .screen { max-width: 520px; margin: 0 auto; min-height: 100dvh; display: flex; flex-direction: column;
+    padding: max(12px, env(safe-area-inset-top)) 16px max(12px, env(safe-area-inset-bottom)); }
+
+  /* Home */
+  h1 { font-size: 28px; margin: 12px 0 4px; }
+  .muted { color: var(--dim); font-size: 14px; }
+  .settings { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
+  .chip { padding: 8px 14px; border-radius: 999px; background: var(--card); font-size: 14px; }
+  .chip.on { background: var(--accent); color: #fff; }
+  .decks { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-bottom: 16px; }
+  .deck { text-align: left; background: var(--card); border-radius: 16px; padding: 14px; min-height: 92px;
+    display: flex; flex-direction: column; justify-content: space-between; }
+  .deck:active { transform: scale(.97); }
+  .deck b { font-size: 16px; }
+  .deck .stat { font-size: 12px; color: var(--accent); margin-top: 6px; }
+  .deck.mix { grid-column: 1 / -1; background: linear-gradient(135deg, #2d6fd6, #4a9eff); min-height: 72px; }
+  .deck.mix .muted, .deck.mix .stat { color: #e6f0ff; }
+
+  /* Quiz */
+  .top { display: flex; align-items: center; justify-content: space-between; height: 44px; }
+  .top .count { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; }
+  .icon svg { width: 24px; height: 24px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .icon.off { opacity: .35; }
+  .bar { height: 3px; background: var(--card); border-radius: 2px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); transition: width .2s; }
+  .card { flex: 1; margin: 14px 0; background: var(--card); border-radius: 22px; padding: 16px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+    box-shadow: 0 14px 0 -6px #161618; min-height: 240px; }
+  .ask { color: var(--dim); font-size: 15px; text-align: center; }
+  .prompt { width: 100%; display: flex; justify-content: center; }
+  .prompt svg { width: 100%; max-height: 280px; filter: invert(.95); }
+  .bigtext { font-size: 72px; font-weight: 700; letter-spacing: -1px; }
+  .ear { font-size: 64px; }
+  .hint { background: var(--card2); border-radius: 12px; padding: 10px 12px; font-size: 14px; width: 100%; }
+  .streak { font-size: 13px; color: var(--accent); min-height: 18px; }
+
+  .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .choices.letters { grid-template-columns: repeat(7, 1fr); gap: 6px; }
+  .choices.three { grid-template-columns: 1fr; }
+  .choice { background: var(--card); border-radius: 14px; min-height: 58px; padding: 8px; font-size: 18px; font-weight: 600; }
+  .letters .choice { min-height: 64px; font-size: 22px; padding: 0; }
+  .choice:active { background: var(--card2); }
+  .choice.ok, .key.ok { background: var(--ok) !important; color: #fff; }
+  .choice.bad, .key.bad { background: var(--bad) !important; color: #fff; }
+
+  .piano { position: relative; height: 150px; width: 100%; user-select: none; }
+  .key { position: absolute; top: 0; border-radius: 0 0 5px 5px; }
+  .key.w { height: 100%; background: #f4f4f4; border: 1px solid #0d0d0f; }
+  .key.b { height: 60%; background: #111; z-index: 1; border: 1px solid #0d0d0f; }
+  .key.hl { background: var(--hl); }
+  .key.sel { background: var(--accent); }
+  .key small { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-size: 9px; color: #888; }
+  .prompt .piano { height: 130px; pointer-events: none; }
+
+  .tabs { display: flex; justify-content: center; margin-top: 14px; }
+  .tabs .seg { display: flex; background: var(--card); border-radius: 999px; padding: 4px; }
+  .tabs button { padding: 8px 22px; border-radius: 999px; color: var(--dim); font-size: 14px; }
+  .tabs button.on { background: var(--card2); color: var(--accent); }
+  .next { margin-top: 14px; background: var(--accent); color: #fff; border-radius: 14px; height: 54px; font-weight: 600; width: 100%; }
+
+  /* Learn sheet */
+  .sheet { position: fixed; inset: 0; background: #000a; display: flex; align-items: flex-end; z-index: 9; }
+  .sheet > div { background: var(--card); width: 100%; max-width: 520px; margin: 0 auto; border-radius: 22px 22px 0 0;
+    padding: 20px 16px max(20px, env(safe-area-inset-bottom)); max-height: 85dvh; overflow: auto; }
+  .sheet h2 { margin: 0 0 8px; }
+  .sheet li { margin: 6px 0; }
+  .ref { margin: 8px 0; }
+  .ref svg { width: 100%; filter: invert(.95); }
+
+  /* Done */
+  .done { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 10px; text-align: center; }
+  .score { font-size: 80px; font-weight: 800; }
+  .missed { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; max-width: 420px; }
+  .missed span { background: var(--card); color: var(--bad); padding: 4px 10px; border-radius: 999px; font-size: 14px; }
+  .row { display: flex; gap: 10px; width: 100%; }
+  .row .next { flex: 1; }
+  .row .next.alt { background: var(--card); }
+</style>
+</head>
+<body>
+
+<div id="home" class="screen">
+  <h1>MusicMentor</h1>
+  <div class="muted">Fast reps. Read notes, chords and rhythm until it's automatic.</div>
+  <div class="settings">
+    <button class="chip" id="adv">♯ ♭ Sharps &amp; flats</button>
+    <button class="chip" data-len="10">10</button>
+    <button class="chip" data-len="20">20</button>
+    <button class="chip" data-len="50">50</button>
+  </div>
+  <div class="decks" id="decks"></div>
+</div>
+
+<div id="quiz" class="screen" hidden>
+  <div class="top">
+    <button class="icon" id="quit" aria-label="Home"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
+    <span class="count" id="count"></span>
+    <span style="display:flex">
+      <button class="icon" id="learnBtn" aria-label="Learn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"/><path d="M12 17.5h.01"/></svg></button>
+      <button class="icon" id="sound" aria-label="Sound"><svg viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/></svg></button>
+    </span>
+  </div>
+  <div class="bar"><i id="progress"></i></div>
+  <div class="card" id="card">
+    <div class="ask" id="ask"></div>
+    <div class="prompt" id="prompt"></div>
+    <div class="hint" id="hint" hidden></div>
+    <div class="streak" id="streak"></div>
+  </div>
+  <div id="answer"></div>
+  <button class="next" id="next" hidden>Continue</button>
+  <div class="tabs" id="tabs">
+    <div class="seg"><button data-mode="choices">Choices</button><button data-mode="keys">Piano</button></div>
+  </div>
+</div>
+
+<div id="done" class="screen" hidden>
+  <div class="done">
+    <div class="muted" id="doneDeck"></div>
+    <div class="score" id="score"></div>
+    <div class="muted" id="doneSub"></div>
+    <div class="missed" id="missed"></div>
+  </div>
+  <div class="row">
+    <button class="next alt" id="homeBtn">Home</button>
+    <button class="next" id="again">Again</button>
+  </div>
+</div>
+
+<div class="sheet" id="sheet" hidden><div id="sheetBody"></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.3/build/cjs/vexflow.js"></script>
+<script src="theory.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
