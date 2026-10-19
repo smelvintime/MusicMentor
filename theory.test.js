@@ -21,6 +21,8 @@ assert.match(staffHint('bass', note('A', '', 2)), /Space 1.*→ A/);
 
 // Every deck builds valid questions in both difficulty modes.
 for (const [id, deck] of Object.entries(DECKS)) {
+  // Keyboards show whole octaves C..B so the left edge is always a recognizable C.
+  if (deck.piano) assert.ok(deck.piano.lo % 12 === 0 && deck.piano.hi % 12 === 11, `${id} keyboard not C..B`);
   for (const adv of [false, true]) {
     const pool = deck.pool(adv);
     assert.ok(pool.length > 1, `${id} pool`);

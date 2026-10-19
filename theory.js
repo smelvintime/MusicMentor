@@ -297,8 +297,8 @@ const MM = (() => {
   const range = (lo, hi) => ({ lo, hi });
   const DECKS = {
     treble: {
-      title: 'Treble clef', sub: 'Read notes, right hand', piano: range(55, 86),
-      pool: (adv) => staffPool('treble', -4, 12, adv), make: staffNoteQuestion,
+      title: 'Treble clef', sub: 'Read notes, right hand', piano: range(48, 83),
+      pool: (adv) => staffPool('treble', -4, 11, adv), make: staffNoteQuestion,
       learn: [
         'The treble clef curls around the G line — line 2.',
         'Lines bottom→top: E G B D F — "Every Good Boy Does Fine".',
@@ -311,7 +311,7 @@ const MM = (() => {
       ],
     },
     bass: {
-      title: 'Bass clef', sub: 'Read notes, left hand', piano: range(36, 64),
+      title: 'Bass clef', sub: 'Read notes, left hand', piano: range(36, 71),
       pool: (adv) => staffPool('bass', -4, 12, adv), make: staffNoteQuestion,
       learn: [
         'The two dots of the bass clef sit around the F line — line 4.',
@@ -325,8 +325,8 @@ const MM = (() => {
       ],
     },
     grand: {
-      title: 'Both clefs', sub: 'Treble + bass mixed', piano: range(41, 79),
-      pool: (adv) => [...staffPool('treble', -2, 8, adv), ...staffPool('bass', 0, 10, adv)], make: staffNoteQuestion,
+      title: 'Both clefs', sub: 'Treble + bass mixed', piano: range(48, 83),
+      pool: (adv) => [...staffPool('treble', -2, 8, adv), ...staffPool('bass', 3, 10, adv)], make: staffNoteQuestion,
       learn: ['Check the clef FIRST, then the note.', 'Treble lines: E G B D F. Bass lines: G B D F A.', 'Both clefs meet at Middle C.'],
     },
     chords: {
