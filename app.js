@@ -400,6 +400,18 @@ function openLearn(id) {
     body.append(Object.assign(document.createElement('div'), { className: 'muted', textContent: r.label }), div);
     drawStaff(div, { clef: r.clef, notes: r.notes.map((k) => ({ keys: [k], dur: 'w' })) }, r.notes.map((k) => k[0].toUpperCase()));
   });
+  if (d.examples) {
+    body.insertAdjacentHTML('beforeend', '<div class="muted">Tap to hear</div><div class="examples"></div>');
+    const grid = body.querySelector('.examples');
+    d.examples.forEach((ex) => {
+      const b = document.createElement('button');
+      b.className = 'ex';
+      b.innerHTML = `<div class="pv"></div><b>${ex.label}</b><span class="muted">${ex.notes}</span>`;
+      drawPiano(b.querySelector('.pv'), { lo: 60, hi: 71 }, Object.fromEntries(ex.keys.map((m) => [m, 'hl'])));
+      b.onclick = () => play(ex.keys, true);
+      grid.append(b);
+    });
+  }
   body.insertAdjacentHTML('beforeend', '<button class="next">Got it</button>');
   $('sheet').hidden = false;
 }

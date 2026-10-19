@@ -147,6 +147,11 @@
   .sheet h2 { margin: 0 0 8px; }
   .sheet li { margin: 6px 0; }
   .ref { margin: 8px 0; }
+  .examples { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 4px; }
+  .ex { background: var(--card2); border-radius: 14px; padding: 10px; display: flex; flex-direction: column; gap: 2px; text-align: left; }
+  .ex:active { transform: scale(.97); }
+  .ex .piano { height: 44px; pointer-events: none; margin-bottom: 6px; }
+  .sheet li i { color: var(--accent); font-style: normal; }
   .hist { border-top: 1px solid var(--card2); padding: 14px 0; display: flex; flex-direction: column; gap: 8px; cursor: pointer; }
   .hist .prompt svg { max-height: 130px; }
   .hist .piano { height: 90px; pointer-events: none; }

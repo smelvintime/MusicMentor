@@ -85,11 +85,28 @@ const MM = (() => {
 
   // ---------- Chords ----------
   const QUAL = {
-    maj: { st: [4, 7], sfx: '', label: 'Major', tip: 'root + 4 half steps + 3 more (bright, happy)' },
-    min: { st: [3, 7], sfx: 'm', label: 'Minor', tip: 'root + 3 half steps + 4 more (dark, sad)' },
-    dim: { st: [3, 6], sfx: 'dim', label: 'Diminished', tip: 'root + 3 + 3 half steps (tense)' },
-    aug: { st: [4, 8], sfx: '+', label: 'Augmented', tip: 'root + 4 + 4 half steps (dreamy, unresolved)' },
+    maj: { st: [4, 7], sfx: '', label: 'Major', tip: 'root + 4 half steps + 3 more. Sounds bright and settled' },
+    min: { st: [3, 7], sfx: 'm', label: 'Minor', tip: 'root + 3 half steps + 4 more. Sounds darker or sad, but still at rest' },
+    dim: { st: [3, 6], sfx: 'dim', label: 'Diminished', tip: 'root + 3 + 3 half steps, a minor chord with the top squeezed down. Sounds tense and uneasy, like it has to move on' },
+    aug: { st: [4, 8], sfx: '+', label: 'Augmented', tip: 'root + 4 + 4 half steps, a major chord with the top pushed up. Sounds dreamy and suspended, like an unanswered question' },
   };
+
+  // Shared chord-quality lesson: what each is, how it sounds, what to listen for.
+  const CHORD_GUIDE = [
+    '<b>Major</b> (C = C E G): 4 + 3 half steps. Bright, happy, finished. <i>Listen for:</i> nothing pulling — it feels like home.',
+    '<b>Minor</b> (Cm = C E♭ G): 3 + 4 half steps. Only the middle note drops. Darker or sad, but still calm. <i>Listen for:</i> a shadow over the same "at home" feeling.',
+    '<b>Diminished</b> (Cdim = C E♭ G♭): 3 + 3 half steps — a minor chord with the top note squeezed down. Tense, uneasy, spooky. <i>Listen for:</i> a clash between the bottom and top notes, and an itch to move to another chord.',
+    '<b>Augmented</b> (C+ = C E G♯): 4 + 4 half steps — a major chord with the top note pushed up. Dreamy, floating, suspenseful (think movie dream sequence). <i>Listen for:</i> a top note that feels stretched too high, like a question with no answer.',
+    'Quick test: Major and minor feel <b>at rest</b>. Diminished and augmented feel <b>unfinished</b> — diminished pulls inward, augmented floats outward.',
+    'Diminished and augmented chords show up when <b>Sharps &amp; flats</b> is on.',
+  ];
+  // Tap-to-hear examples on the lesson sheet, all built on C4.
+  const CHORD_EXAMPLES = [
+    { label: 'C major', notes: 'C E G', keys: [60, 64, 67] },
+    { label: 'C minor', notes: 'C E♭ G', keys: [60, 63, 67] },
+    { label: 'C diminished', notes: 'C E♭ G♭', keys: [60, 63, 66] },
+    { label: 'C augmented', notes: 'C E G♯', keys: [60, 64, 68] },
+  ];
 
   function triad(root, q) {
     const r = midi(root);
@@ -287,7 +304,7 @@ const MM = (() => {
     const labels = (adv ? ['maj', 'min', 'dim', 'aug'] : ['maj', 'min']).map((q) => QUAL[q].label);
     return {
       prompt: { type: 'ear' },
-      ask: 'Major or minor? (tap card to replay)',
+      ask: `${adv ? 'Which chord type?' : 'Major or minor?'} (tap card to replay)`,
       choices: labels,
       correct: QUAL[it.q].label,
       hint: `${QUAL[it.q].label}: ${QUAL[it.q].tip}.`,
@@ -338,9 +355,10 @@ const MM = (() => {
       learn: [
         'A triad is 3 notes stacked in thirds — all on lines or all on spaces.',
         'The bottom note (in root position) is the root and names the chord.',
-        'Major = root + 4 half steps + 3. Minor = root + 3 + 4.',
         'Piano mode: tap all 3 keys.',
+        ...CHORD_GUIDE,
       ],
+      examples: CHORD_EXAMPLES,
     },
     pnotes: {
       title: 'Piano keys', sub: 'Key ↔ note name', piano: range(60, 83),
@@ -359,7 +377,10 @@ const MM = (() => {
         'Major chord: root, skip 3 keys, then skip 2 (4 + 3 half steps).',
         'Minor chord: root, skip 2 keys, then skip 3 (3 + 4 half steps).',
         'C, F and G major are all white keys. D, E and A major have a black key in the middle.',
+        'Diminished: root, skip 2 keys, skip 2 again (3 + 3). Augmented: root, skip 3, skip 3 again (4 + 4).',
+        ...CHORD_GUIDE,
       ],
+      examples: CHORD_EXAMPLES,
     },
     values: {
       title: 'Note values', sub: 'Notes, rests, beats',
@@ -396,7 +417,8 @@ const MM = (() => {
       title: 'Ear training', sub: 'Hear major vs minor',
       pool: (adv) => (adv ? ['maj', 'min', 'dim', 'aug'] : ['maj', 'min']).map((q) => ({ id: `ear:${q}`, q, label: QUAL[q].label })),
       make: earQuestion,
-      learn: ['Major sounds bright. Minor sounds darker or sad.', 'Diminished sounds tense; augmented sounds dreamy/unsettled.'],
+      learn: CHORD_GUIDE,
+      examples: CHORD_EXAMPLES,
     },
   };
 
