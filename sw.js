@@ -1,7 +1,10 @@
 // Offline support. Network-first: online you always get the latest deploy (no
 // version bumps, no stale cache); offline, or if the network takes longer than
 // NETWORK_TIMEOUT_MS, it serves the last copy saved.
-const CACHE = 'musicmentor';
+// Bumping VERSION re-downloads the whole offline copy on every device and deletes the old one.
+// Optional: online visits already get the latest files without it.
+const VERSION = '2026-10-19-pitch';
+const CACHE = `musicmentor-${VERSION}`;
 const NETWORK_TIMEOUT_MS = 5000;
 const PIANO = ['C7'];
 for (let o = 2; o <= 6; o++) PIANO.push(...['C', 'Ds', 'Fs', 'A'].map((n) => n + o));
@@ -12,7 +15,11 @@ self.addEventListener('install', (e) => {
 });
 
 self.addEventListener('activate', (e) => {
-  e.waitUntil(self.clients.claim());
+  e.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim()),
+  );
 });
 
 const fromCache = async (request) =>
