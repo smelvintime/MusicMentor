@@ -142,11 +142,13 @@ function drawPiano(el, { lo, hi }, marks = {}, onTap) {
 }
 
 // ---------- quiz state ----------
-let deckId, q, item, n, results, mode, sel, locked, t0, lastId;
+let deckId, q, item, n, tally, mode, sel, locked, t0, lastId;
 let streak = 0;
+let advanceTimer;
 
 function show(id) {
   silence();
+  clearTimeout(advanceTimer); // leaving mid-advance must not pull you back into the quiz
   ['home', 'quiz', 'done'].forEach((s) => { $(s).hidden = s !== id; });
   $('sheet').hidden = true;
 }
@@ -155,7 +157,9 @@ function start(id) {
   preload();
   deckId = id;
   n = 0;
-  results = [];
+  // Running totals, not a per-answer log: infinite mode stays constant-memory.
+  // `missed` is capped by the deck's item count.
+  tally = { n: 0, ok: 0, ms: 0, missed: new Set() };
   $('streak').replaceChildren();
   if (streak >= 2) renderStreak(streak);
   show('quiz');
@@ -171,6 +175,7 @@ function weighted(pool) {
 
 function nextQ() {
   silence();
+  clearTimeout(advanceTimer);
   if (S.len && n >= S.len) return finish(); // len 0 = infinite
   const did = deckId === 'mix' ? MM.shuffle(Object.keys(DECKS))[0] : deckId;
   const pool = DECKS[did].pool(S.adv);
@@ -186,8 +191,7 @@ function nextQ() {
 
 function render() {
   const deck = DECKS[q.deck];
-  const right = results.filter((r) => r.ok).length;
-  $('count').textContent = S.len ? `${n} / ${S.len}` : `${right} / ${results.length} correct`;
+  $('count').textContent = S.len ? `${n} / ${S.len}` : `${tally.ok} / ${tally.n} correct`;
   $('progress').style.width = S.len ? `${((n - 1) / S.len) * 100}%` : '0';
   $('ask').textContent = deckId === 'mix' ? `${deck.title} · ${q.ask}` : q.ask;
   $('hint').hidden = true;
@@ -257,7 +261,8 @@ function tapKey(m, k) {
 function settle(ok) {
   locked = true;
   const ms = performance.now() - t0;
-  results.push({ ok, ms, label: item.label });
+  tally = { ...tally, n: tally.n + 1, ok: tally.ok + (ok ? 1 : 0), ms: tally.ms + ms };
+  if (!ok) tally.missed.add(item.label);
   const w = S.w[item.id] ?? 1;
   // Missed items come back much more often; fast correct answers fade out.
   S.w[item.id] = ok ? Math.max(0.3, w * (ms < 3000 ? 0.6 : 0.9)) : Math.min(10, w * 2 + 1);
@@ -268,7 +273,7 @@ function settle(ok) {
   streak = ok ? streak + 1 : 0;
   renderStreak(prev);
   if (!q.autoplay) play(q.play); // ear cards were already heard
-  if (ok) return setTimeout(nextQ, 450);
+  if (ok) { advanceTimer = setTimeout(nextQ, 450); return; }
   $('hint').textContent = q.hint;
   $('hint').hidden = false;
   $('next').hidden = false;
@@ -311,12 +316,12 @@ function announce(num) {
 }
 
 function finish() {
-  const c = results.filter((r) => r.ok).length;
-  const avg = results.reduce((a, r) => a + r.ms, 0) / results.length / 1000;
+  const { n: total, ok: c, ms } = tally;
+  const avg = ms / Math.max(total, 1) / 1000;
   $('doneDeck').textContent = deckId === 'mix' ? 'Mix' : DECKS[deckId].title;
-  $('score').textContent = `${Math.round((c / results.length) * 100)}%`;
-  $('doneSub').textContent = `${c} / ${results.length} correct · ${avg.toFixed(1)}s per answer`;
-  const missed = [...new Set(results.filter((r) => !r.ok).map((r) => r.label))];
+  $('score').textContent = `${Math.round((c / Math.max(total, 1)) * 100)}%`;
+  $('doneSub').textContent = `${c} / ${total} correct · ${avg.toFixed(1)}s per answer`;
+  const missed = [...tally.missed];
   $('missed').innerHTML = missed.map((l) => `<span>${l}</span>`).join('');
   show('done');
 }
@@ -358,7 +363,7 @@ $('decks').addEventListener('click', (e) => { const b = e.target.closest('[data-
 $('adv').onclick = () => { S.adv = !S.adv; save(); renderHome(); };
 document.querySelectorAll('[data-len]').forEach((b) => { b.onclick = () => { S.len = +b.dataset.len; save(); renderHome(); }; });
 // In infinite mode, leaving shows the round summary instead of dropping the stats.
-$('quit').onclick = () => (!S.len && results.length ? finish() : renderHome());
+$('quit').onclick = () => (!S.len && tally.n ? finish() : renderHome());
 $('homeBtn').onclick = renderHome;
 $('again').onclick = () => start(deckId);
 $('next').onclick = nextQ;
