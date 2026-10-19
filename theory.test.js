@@ -33,6 +33,11 @@ for (const [id, deck] of Object.entries(DECKS)) {
         assert.ok(q.choices || q.keys, `${id} answerable`);
         if (q.choices) assert.ok(q.choices.includes(q.correct), `${id} ${it.id}: ${q.correct} not in ${q.choices}`);
         if (q.choices) assert.strictEqual(new Set(q.choices).size, q.choices.length, `${id} dup choices`);
+        // A sharp/flat answer must not be the only sharp/flat on offer.
+        const accOf = (c) => (c.includes('/') ? '/' : c.match(/[♯♭]/)?.[0] || '');
+        if (['treble', 'bass', 'grand', 'pnotes'].includes(id) && q.choices) {
+          assert.ok(q.choices.every((c) => accOf(c) === accOf(q.correct)), `${id} mixed accidentals: ${q.choices}`);
+        }
         if (q.keys && q.exact && deck.piano) q.keys.forEach((m) => assert.ok(m >= deck.piano.lo && m <= deck.piano.hi, `${id} ${m} off piano`));
       }
     }

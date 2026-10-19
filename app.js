@@ -116,7 +116,7 @@ function drawStaff(el, p, labels) {
   svg.style.cssText = '';
 }
 
-function drawPiano(el, { lo, hi }, marks = {}, onTap) {
+function drawPiano(el, { lo, hi }, marks = {}) {
   const whites = [];
   for (let m = lo; m <= hi; m++) if (!isBlack(m)) whites.push(m);
   const ww = 100 / whites.length;
@@ -136,7 +136,6 @@ function drawPiano(el, { lo, hi }, marks = {}, onTap) {
       if (m % 12 === 0) k.innerHTML = `<small>C${m / 12 - 1}</small>`;
     }
     if (marks[m]) k.classList.add(marks[m]);
-    if (onTap) k.addEventListener('pointerdown', (e) => { e.preventDefault(); onTap(m, k); });
     div.append(k);
   }
   el.replaceChildren(div);
@@ -217,14 +216,15 @@ function drawPrompt(el, p, deck) {
 
 function renderAnswer() {
   const a = $('answer');
-  if (mode === 'keys') return drawPiano(a, DECKS[q.deck].piano, {}, tapKey);
+  if (mode === 'keys') return drawPiano(a, DECKS[q.deck].piano);
   const grid = document.createElement('div');
-  grid.className = `choices${q.choices.length === 7 ? ' letters' : ''}${q.choices.length === 3 ? ' three' : ''}`;
+  const row = q.choices.length >= 5; // note-name rows (A–G, or all ♯ / all ♭)
+  grid.className = `choices${row ? ' letters' : ''}${q.choices.length === 3 ? ' three' : ''}`;
+  if (row) grid.style.gridTemplateColumns = `repeat(${q.choices.length}, 1fr)`;
   q.choices.forEach((c) => {
     const b = document.createElement('button');
-    b.className = 'choice';
+    b.className = `choice${row && c.length > 2 ? ' long' : ''}`;
     b.textContent = c;
-    b.addEventListener('pointerdown', (e) => { e.preventDefault(); choose(c, b); });
     grid.append(b);
   });
   a.replaceChildren(grid);
@@ -237,6 +237,36 @@ function choose(c, btn) {
   if (!ok) [...$('answer').querySelectorAll('.choice')].find((b) => b.textContent === q.correct).classList.add('ok');
   settle(ok, c);
 }
+
+// Answers commit on RELEASE: press, slide onto the right key or button if you
+// fat-fingered, then lift. Sliding off everything cancels.
+let pressed = null;
+let pressing = false;
+const answerAt = (x, y) => document.elementFromPoint(x, y)?.closest('#answer [data-m], #answer .choice') || null;
+function setPressed(el) {
+  if (el === pressed) return;
+  pressed?.classList.remove('press');
+  pressed = el;
+  pressed?.classList.add('press');
+}
+$('answer').addEventListener('pointerdown', (e) => {
+  if (locked) return;
+  e.preventDefault();
+  $('answer').setPointerCapture(e.pointerId); // keep getting moves after the finger leaves the key
+  pressing = true;
+  setPressed(answerAt(e.clientX, e.clientY));
+});
+$('answer').addEventListener('pointermove', (e) => { if (pressing) setPressed(answerAt(e.clientX, e.clientY)); });
+$('answer').addEventListener('pointerup', () => {
+  if (!pressing) return;
+  pressing = false;
+  const t = pressed;
+  setPressed(null);
+  if (!t || locked) return;
+  if (t.dataset.m) tapKey(+t.dataset.m, t);
+  else choose(t.textContent, t);
+});
+$('answer').addEventListener('pointercancel', () => { pressing = false; setPressed(null); });
 
 const markKeys = (keys, cls) => keys.forEach((m) => $('answer').querySelector(`[data-m="${m}"]`)?.classList.add(cls));
 

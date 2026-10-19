@@ -64,15 +64,18 @@ const MM = (() => {
     return items;
   }
 
-  function staffNoteQuestion(it, adv) {
+  // Every option shares the answer's accidental, in letter order, so spotting the
+  // ♯/♭ never gives the answer away: you still have to read the line or space.
+  const sameAccidentalRow = (acc) =>
+    LETTERS.split('').filter((l) => !ODD.includes(l + acc)).map((l) => l + SYM[acc]);
+
+  function staffNoteQuestion(it) {
     const { clef, n } = it;
-    const variants = ['', '#', 'b'].map((a) => n.letter + SYM[a]).filter((x) => !ODD.includes(x.replace('♯', '#').replace('♭', 'b')));
-    const others = shuffle(LETTERS.split('').filter((l) => l !== n.letter));
     return {
       prompt: { type: 'staff', clef, notes: [{ keys: [vex(n)], accs: [n.acc], dur: 'w' }] },
       ask: 'Name this note',
-      choices: adv ? pick(name(n), [...shuffle(variants), ...others]) : LETTERS.split(''),
-      correct: adv ? name(n) : n.letter,
+      choices: sameAccidentalRow(n.acc),
+      correct: name(n),
       keys: [midi(n)],
       exact: true,
       hint: staffHint(clef, n),
@@ -170,7 +173,7 @@ const MM = (() => {
       return {
         prompt: { type: 'piano', highlight: [m] },
         ask: 'Name this key',
-        choices: adv ? pickRandom(nm, pianoNotePool(true).map((i) => i.label)) : LETTERS.split(''),
+        choices: isBlack(m) ? Object.values(BLACK_NAMES) : LETTERS.split(''),
         correct: nm,
         hint,
         play: [m],

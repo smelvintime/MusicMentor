@@ -14,6 +14,8 @@
     --accent: #4a9eff; --ok: #34c759; --bad: #ff453a; --hl: #ef5350;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  /* App, not a document: no text selection or iOS long-press callout */
+  body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
     font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
   button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; touch-action: manipulation; }
@@ -115,11 +117,16 @@
   .choices.three { grid-template-columns: 1fr; }
   .choice { background: var(--card); border-radius: 14px; min-height: 58px; padding: 8px; font-size: 18px; font-weight: 600; }
   .letters .choice { min-height: 64px; font-size: 22px; padding: 0; }
+  .letters .choice.long { font-size: 13px; }
+  #answer { touch-action: none; }
+  .choice.press { background: var(--card2); transform: scale(.96); }
+  .key.w.press { background: #b9c9e0; }
+  .key.b.press { background: #4b5563; }
   .choice:active { background: var(--card2); }
   .choice.ok, .key.ok { background: var(--ok) !important; color: #fff; }
   .choice.bad, .key.bad { background: var(--bad) !important; color: #fff; }
 
-  .piano { position: relative; height: 150px; width: 100%; user-select: none; }
+  .piano { position: relative; height: 170px; width: 100%; user-select: none; }
   .key { position: absolute; top: 0; border-radius: 0 0 5px 5px; }
   .key.w { height: 100%; background: #f4f4f4; border: 1px solid #0d0d0f; }
   .key.b { height: 60%; background: #111; z-index: 1; border: 1px solid #0d0d0f; }
