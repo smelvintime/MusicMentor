@@ -256,7 +256,7 @@ function settle(ok) {
   save();
   streak = ok ? streak + 1 : 0;
   $('streak').textContent = streak >= 3 ? `🔥 ${streak} in a row` : '';
-  play(q.play);
+  if (!q.autoplay) play(q.play); // ear cards were already heard
   if (ok) return setTimeout(nextQ, 450);
   $('hint').textContent = q.hint;
   $('hint').hidden = false;
