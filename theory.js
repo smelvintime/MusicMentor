@@ -98,7 +98,6 @@ const MM = (() => {
     '<b>Diminished</b> (Cdim = C E♭ G♭): 3 + 3 half steps — a minor chord with the top note squeezed down. Tense, uneasy, spooky. <i>Listen for:</i> a clash between the bottom and top notes, and an itch to move to another chord.',
     '<b>Augmented</b> (C+ = C E G♯): 4 + 4 half steps — a major chord with the top note pushed up. Dreamy, floating, suspenseful (think movie dream sequence). <i>Listen for:</i> a top note that feels stretched too high, like a question with no answer.',
     'Quick test: Major and minor feel <b>at rest</b>. Diminished and augmented feel <b>unfinished</b> — diminished pulls inward, augmented floats outward.',
-    'Diminished and augmented chords show up when <b>Sharps &amp; flats</b> is on.',
   ];
   // Tap-to-hear examples on the lesson sheet, all built on C4.
   const CHORD_EXAMPLES = [
@@ -414,7 +413,7 @@ const MM = (() => {
       ],
     },
     ear: {
-      title: 'Ear training', sub: 'Hear major vs minor',
+      title: 'Ear training', sub: 'Hear the chord type',
       pool: (adv) => (adv ? ['maj', 'min', 'dim', 'aug'] : ['maj', 'min']).map((q) => ({ id: `ear:${q}`, q, label: QUAL[q].label })),
       make: earQuestion,
       learn: CHORD_GUIDE,

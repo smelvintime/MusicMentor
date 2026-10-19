@@ -2,6 +2,7 @@
 const { DECKS, isBlack } = MM;
 const VF = Vex.Flow;
 const $ = (id) => document.getElementById(id);
+const SHARPS_FLATS = true; // always on: every deck includes sharps, flats, diminished and augmented
 
 // Icons are inline SVG so they look identical on every device (no emoji fonts).
 const ICON = {
@@ -13,7 +14,7 @@ const ICON = {
 
 // ---------- persistence ----------
 const S = (() => {
-  const base = { w: {}, s: {}, adv: false, len: 20, sound: true, mode: {}, pick: [] };
+  const base = { w: {}, s: {}, len: 20, sound: true, mode: {}, pick: [] };
   try { return { ...base, ...JSON.parse(localStorage.getItem('mm')) }; } catch { return base; }
 })();
 const save = () => { try { localStorage.setItem('mm', JSON.stringify(S)); } catch { /* private mode: progress just won't persist */ } };
@@ -173,7 +174,7 @@ function start(id) {
 const itemWeight = (i) => S.w[i.id] ?? 1;
 // A deck's struggle = its cards' average, so Mix leans toward your weakest decks too.
 const deckWeight = (id) => {
-  const pool = DECKS[id].pool(S.adv);
+  const pool = DECKS[id].pool(SHARPS_FLATS);
   return pool.reduce((a, i) => a + itemWeight(i), 0) / pool.length;
 };
 
@@ -188,10 +189,10 @@ function nextQ() {
   clearTimeout(advanceTimer);
   if (S.len && n >= S.len) return finish(); // len 0 = infinite
   const did = deckId === 'mix' ? weighted(mixDecks(), deckWeight) : deckId;
-  const pool = DECKS[did].pool(S.adv);
+  const pool = DECKS[did].pool(SHARPS_FLATS);
   item = weighted(pool.length > 1 ? pool.filter((i) => i.id !== lastId) : pool, itemWeight);
   lastId = item.id;
-  q = { ...DECKS[did].make(item, S.adv), deck: did };
+  q = { ...DECKS[did].make(item, SHARPS_FLATS), deck: did };
   n++;
   locked = false;
   sel = new Set();
@@ -462,7 +463,6 @@ const PREVIEW = {
 };
 
 function renderHome() {
-  $('adv').classList.toggle('on', S.adv);
   document.querySelectorAll('[data-len]').forEach((b) => b.classList.toggle('on', +b.dataset.len === S.len));
   $('decks').innerHTML = SECTIONS.map(([name, ids]) => `
     <div class="section">${name}</div>
@@ -498,7 +498,6 @@ $('home').addEventListener('click', (e) => {
   const pk = e.target.closest('[data-pick]');
   if (pk) return togglePick(pk.dataset.pick, pk);
   const b = e.target.closest('[data-deck]'); if (b) start(b.dataset.deck); });
-$('adv').onclick = () => { S.adv = !S.adv; save(); renderHome(); };
 document.querySelectorAll('[data-len]').forEach((b) => { b.onclick = () => { S.len = +b.dataset.len; save(); renderHome(); }; });
 // In infinite mode, leaving shows the round summary instead of dropping the stats.
 $('quit').onclick = () => (!S.len && tally.n ? finish() : renderHome());
