@@ -374,24 +374,60 @@ function openLearn(id) {
 }
 
 // ---------- home ----------
+const SECTIONS = [
+  ['Read music', ['treble', 'bass', 'grand', 'chords']],
+  ['Keyboard', ['pnotes', 'pchords']],
+  ['Rhythm & theory', ['values', 'count', 'keysig']],
+  ['Listen', ['ear']],
+];
+const note = (keys, dur = 'w') => ({ keys, dur });
+const PREVIEW = {
+  treble: { clef: 'treble', notes: [note(['e/5'])] },
+  bass: { clef: 'bass', notes: [note(['f/3'])] },
+  grand: { clef: 'treble', notes: [note(['c/4'])] },
+  chords: { clef: 'treble', notes: [note(['c/4', 'e/4', 'g/4'])] },
+  values: { clef: null, notes: [note(['b/4'], 'h'), note(['b/4'], 'q'), note(['b/4'], '8'), note(['b/4'], '8')] },
+  count: { clef: 'treble', timeSig: '3/4', notes: [] },
+  keysig: { clef: 'treble', keySig: 'D', notes: [] },
+  pnotes: { type: 'piano', highlight: [64] },
+  pchords: { type: 'piano', highlight: [60, 64, 67] },
+  ear: { type: 'ear' },
+};
+
 function renderHome() {
   $('adv').classList.toggle('on', S.adv);
   document.querySelectorAll('[data-len]').forEach((b) => b.classList.toggle('on', +b.dataset.len === S.len));
-  const stat = (id) => {
+  const all = Object.values(S.s).reduce((a, s) => ({ n: a.n + s.n, c: a.c + s.c }), { n: 0, c: 0 });
+  $('totals').textContent = all.n ? `${all.n.toLocaleString()} reps · ${Math.round((all.c / all.n) * 100)}% accuracy` : 'Pick a deck to start';
+  const meter = (id) => {
     const s = S.s[id];
-    return s ? `${Math.round((s.c / s.n) * 100)}% · ${s.n} reps` : 'New';
+    if (!s) return '<div class="meter">New</div>';
+    const pct = Math.round((s.c / s.n) * 100);
+    return `<div class="meter"><i><span style="width:${pct}%"></span></i>${pct}%</div>`;
   };
-  const tiles = [['mix', { title: 'Mix everything', sub: 'All decks, shuffled' }], ...Object.entries(DECKS)];
-  $('decks').innerHTML = tiles.map(([id, d]) => `
-    <button class="deck${id === 'mix' ? ' mix' : ''}" data-deck="${id}">
-      <div><b>${d.title}</b><div class="muted">${d.sub}</div></div>
-      ${id === 'mix' ? '' : `<div class="stat">${stat(id)}</div>`}
-    </button>`).join('');
+  $('decks').innerHTML = SECTIONS.map(([name, ids]) => `
+    <div class="section">${name}</div>
+    <div class="decks">${ids.map((id) => `
+      <button class="deck" data-deck="${id}">
+        <div class="pv"></div>
+        <b>${DECKS[id].title}</b>
+        <div class="muted">${DECKS[id].sub}</div>
+        ${meter(id)}
+      </button>`).join('')}
+    </div>`).join('');
+  document.querySelectorAll('#decks .pv').forEach((el) => {
+    const id = el.closest('[data-deck]').dataset.deck;
+    const p = { type: 'staff', ...PREVIEW[id] };
+    drawPrompt(el, p, { piano: { lo: 60, hi: 71 } });
+    // Crop the empty space above/below the staff so the preview reads at tile size.
+    const svg = el.querySelector('svg[viewBox]');
+    if (p.type === 'staff') svg.setAttribute('viewBox', svg.getAttribute('viewBox').replace(/ 0 (\S+) \d+$/, ' 22 $1 96'));
+  });
   show('home');
 }
 
 // ---------- events ----------
-$('decks').addEventListener('click', (e) => { const b = e.target.closest('[data-deck]'); if (b) start(b.dataset.deck); });
+$('home').addEventListener('click', (e) => { const b = e.target.closest('[data-deck]'); if (b) start(b.dataset.deck); });
 $('adv').onclick = () => { S.adv = !S.adv; save(); renderHome(); };
 document.querySelectorAll('[data-len]').forEach((b) => { b.onclick = () => { S.len = +b.dataset.len; save(); renderHome(); }; });
 // In infinite mode, leaving shows the round summary instead of dropping the stats.
