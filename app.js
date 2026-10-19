@@ -11,24 +11,47 @@ const S = (() => {
 const save = () => { try { localStorage.setItem('mm', JSON.stringify(S)); } catch { /* private mode: progress just won't persist */ } };
 
 // ---------- audio ----------
+// Salamander Grand Piano samples (piano/), one every 3 semitones; the nearest is pitch-shifted.
+const SAMPLES = { 96: 'C7' };
+for (let o = 2; o <= 6; o++) ['C', 'Ds', 'Fs', 'A'].forEach((nm, i) => { SAMPLES[12 * (o + 1) + i * 3] = nm + o; });
+const SAMPLE_KEYS = Object.keys(SAMPLES).map(Number);
+const buffers = {};
 let ac;
-function play(midis, force) {
-  if (!midis || (!S.sound && !force)) return;
+function audio() {
   ac ??= new (window.AudioContext || window.webkitAudioContext)();
   ac.resume();
-  const t = ac.currentTime;
-  midis.forEach((m) => {
-    const o = ac.createOscillator();
-    const g = ac.createGain();
-    o.type = 'triangle';
-    o.frequency.value = 440 * 2 ** ((m - 69) / 12);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.35 / midis.length, t + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.4);
-    o.connect(g).connect(ac.destination);
-    o.start(t);
-    o.stop(t + 1.5);
-  });
+  return ac;
+}
+function load(m) {
+  buffers[m] ??= fetch(`piano/${SAMPLES[m]}.mp3`)
+    .then((r) => r.arrayBuffer())
+    .then((b) => audio().decodeAudioData(b))
+    .catch((e) => { delete buffers[m]; throw e; });
+  return buffers[m];
+}
+const nearest = (m) => SAMPLE_KEYS.reduce((a, b) => (Math.abs(b - m) < Math.abs(a - m) ? b : a));
+const preload = () => SAMPLE_KEYS.forEach((m) => load(m).catch(() => {}));
+
+async function play(midis, force) {
+  if (!midis || (!S.sound && !force)) return;
+  try {
+    const notes = await Promise.all(midis.map(async (m) => [m, nearest(m), await load(nearest(m))]));
+    const ctx = audio();
+    const t = ctx.currentTime;
+    notes.forEach(([m, base, buf]) => {
+      const src = ctx.createBufferSource();
+      const g = ctx.createGain();
+      src.buffer = buf;
+      src.playbackRate.value = 2 ** ((m - base) / 12);
+      g.gain.setValueAtTime(0.8 / Math.sqrt(midis.length), t);
+      g.gain.setTargetAtTime(0, t + 1.5, 0.3);
+      src.connect(g).connect(ctx.destination);
+      src.start(t);
+      src.stop(t + 3);
+    });
+  } catch (e) {
+    console.error('Piano sample failed to load', e);
+  }
 }
 
 // ---------- drawing ----------
@@ -101,6 +124,7 @@ function show(id) {
 }
 
 function start(id) {
+  preload();
   deckId = id;
   n = 0;
   results = [];

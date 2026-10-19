@@ -6,3 +6,5 @@ Static site, no build step. Deploys to Vercel as-is.
 
 - Run locally: `python3 -m http.server` then open http://localhost:8000
 - Check the theory logic: `node theory.test.js`
+
+Piano sounds: [Salamander Grand Piano](https://archive.org/details/SalamanderGrandPianoV3) by Alexander Holm, CC-BY 3.0 (MP3s via Tone.js).
