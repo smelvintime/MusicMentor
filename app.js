@@ -520,3 +520,5 @@ document.addEventListener('keydown', (e) => {
 
 syncSound();
 renderHome();
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((e) => console.error('Offline mode unavailable', e));
