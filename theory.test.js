@@ -73,4 +73,27 @@ assert.ok(sawInversion, 'hard chords include inversions');
 const sawTie = Array.from({ length: 200 }, () => DECKS.count.make({ kind: 'miss', sig: '4/4' }, true, true))
   .some((q) => q.prompt.notes.some((x) => x.tie));
 assert.ok(sawTie, 'hard rhythm includes ties');
+// Piano chords: a wrong choice must never play the same keys as the answer (F♯ / G♭, C+ / A♭+ ...).
+const keySet = (c) => [...new Set(c.notes.map((n) => ((midi(n) % 12) + 12) % 12))].sort((x, y) => x - y).join();
+const byLabel = Object.fromEntries(MM.chordPool(true).map((c) => [c.label, c]));
+for (const it of DECKS.pchords.pool(true)) {
+  for (let k = 0; k < 40; k++) {
+    const q = DECKS.pchords.make(it, true, true);
+    if (!q.choices) continue;
+    q.choices.filter((c) => c !== q.correct).forEach((c) => assert.notStrictEqual(keySet(byLabel[c]), keySet(it), `${it.label} offers twin ${c}`));
+  }
+}
+
+// Reading chords and playing chord shapes are tracked separately.
+const chordIds = new Set(DECKS.chords.pool(true).map((i) => i.id));
+assert.ok(DECKS.pchords.pool(true).every((i) => !chordIds.has(i.id)), 'chords and pchords share ids');
+
+// Compound meter is felt in dotted-quarter beats, never "6 beats".
+for (const sig of ['6/8', '9/8', '12/8']) {
+  for (let k = 0; k < 40; k++) {
+    const q = DECKS.count.make({ kind: 'sig', sig }, true, true);
+    if (q.ask.startsWith('Which note')) assert.strictEqual(q.correct, 'Dotted quarter note', sig);
+    else assert.strictEqual(q.ask, 'How many eighth notes per measure?', sig);
+  }
+}
 console.log('theory ok');

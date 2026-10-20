@@ -170,14 +170,19 @@ const MM = (() => {
     };
   }
 
+  // Same keys, different name (F♯ / G♭, C+ / E+ / A♭+): the keyboard can't tell them apart.
+  const keySet = (notes) => [...new Set(notes.map((n) => ((midi(n) % 12) + 12) % 12))].sort((a, b) => a - b).join();
+
   function chordPianoQuestion(it, adv, hard) {
     const inv = hard ? rand([0, 1, 2]) : 0;
     const keys = invert(it.notes, inv).map(midi);
     if (Math.random() < 0.5) {
+      // A twin would be another right answer, so it is never offered as a wrong one.
+      const others = chordPool(adv).filter((c) => keySet(c.notes) !== keySet(it.notes));
       return {
         prompt: { type: 'piano', highlight: keys },
         ask: 'Which chord is this?',
-        choices: pickRandom(it.label, chordPool(adv).map((c) => c.label)),
+        choices: pickRandom(it.label, others.map((c) => c.label)),
         correct: it.label,
         hint: chordHint(it, inv),
         play: keys,
@@ -295,12 +300,21 @@ const MM = (() => {
   function countQuestion(it, adv, hard) {
     if (it.kind === 'sig') {
       const [top, bottom] = it.sig.split('/');
-      const beatNote = { 2: 'Half note', 4: 'Quarter note', 8: 'Eighth note' }[bottom];
-      const hint = `Top number = beats per measure (${top}). Bottom number = which note gets one beat (${bottom} → ${beatNote.toLowerCase()}).`;
+      const unit = { 2: 'Half note', 4: 'Quarter note', 8: 'Eighth note' }[bottom];
       const prompt = { type: 'staff', clef: 'treble', timeSig: it.sig, notes: [] };
+      const beatChoices = ['Half note', 'Quarter note', 'Eighth note', 'Dotted quarter note'];
+      // Compound meter (6/8, 9/8, 12/8): eighth notes grouped in threes, so the beat is a dotted quarter.
+      if (bottom === '8' && top % 3 === 0 && top > 3) {
+        const beats = String(top / 3);
+        const hint = `${it.sig} is compound time: ${top} eighth notes grouped in threes, felt as ${beats} dotted-quarter beats.`;
+        return Math.random() < 0.5
+          ? { prompt, ask: 'How many eighth notes per measure?', choices: pickRandom(top, ['3', '4', '6', '8', '9', '12']), correct: top, hint }
+          : { prompt, ask: 'Which note gets one beat?', choices: beatChoices, correct: 'Dotted quarter note', hint };
+      }
+      const hint = `Top number = beats per measure (${top}). Bottom number = which note gets one beat (${bottom} → ${unit.toLowerCase()}).`;
       return Math.random() < 0.5
         ? { prompt, ask: 'How many beats per measure?', choices: pickRandom(top, ['2', '3', '4', '5', '6', '7', '8', '9', '12']), correct: top, hint }
-        : { prompt, ask: 'Which note gets one beat?', choices: ['Half note', 'Quarter note', 'Eighth note'], correct: beatNote, hint };
+        : { prompt, ask: 'Which note gets one beat?', choices: beatChoices, correct: unit, hint };
     }
     const top = +it.sig[0];
     const missing = rand(adv ? [1, 2, 3, 4] : [2, 4]);
@@ -400,11 +414,17 @@ const MM = (() => {
 
   // [name, a song whose first two notes make this interval going up]
   const INTERVALS = {
-    1: ['Minor 2nd', 'Jaws'], 2: ['Major 2nd', 'Happy Birthday'], 3: ['Minor 3rd', 'Greensleeves'],
+    1: ['Minor 2nd', 'Jaws'], 2: ['Major 2nd', 'Frère Jacques'], 3: ['Minor 3rd', 'Greensleeves'],
     4: ['Major 3rd', 'When the Saints Go Marching In'], 5: ['Perfect 4th', 'Here Comes the Bride'],
     6: ['Tritone', 'The Simpsons theme'], 7: ['Perfect 5th', 'Twinkle Twinkle Little Star'],
-    8: ['Minor 6th', 'The Entertainer (2nd to 3rd note)'], 9: ['Major 6th', 'My Bonnie Lies Over the Ocean'],
+    8: ['Minor 6th', 'The Entertainer (3rd to 4th note)'], 9: ['Major 6th', 'My Bonnie Lies Over the Ocean'],
     10: ['Minor 7th', 'Star Trek theme'], 11: ['Major 7th', 'Take On Me (chorus)'], 12: ['Octave', 'Somewhere Over the Rainbow'],
+  };
+
+  // Songs whose first two notes make the interval going DOWN (hard mode).
+  const DOWN_SONGS = {
+    1: 'Für Elise', 2: 'Mary Had a Little Lamb', 3: 'Hey Jude', 4: 'Swing Low, Sweet Chariot',
+    5: 'Eine kleine Nachtmusik (2nd to 3rd note)', 7: 'The Flintstones',
   };
 
   function intervalPool(adv, hard) {
@@ -419,7 +439,9 @@ const MM = (() => {
     const a = rand(WHITE_C4) + (it.st < 0 ? 12 : 0); // both notes stay within C4–B5
     const b = a + it.st;
     const [label, song] = INTERVALS[size];
-    const hint = `${label}${it.st < 0 ? ' going down' : ''} = ${size} half step${size > 1 ? 's' : ''}. ${it.st > 0 ? `Think "${song}".` : `Same distance as "${song}", just downward.`}`;
+    const down = DOWN_SONGS[size];
+    const tip = it.st > 0 ? `Think "${song}".` : down ? `Think "${down}".` : `Same distance as "${song}", just downward.`;
+    const hint = `${label}${it.st < 0 ? ' going down' : ''} = ${size} half step${size > 1 ? 's' : ''}. ${tip}`;
     const shared = { hint, play: [a, b], gap: NOTE_GAP, autoplay: true };
     if (Math.random() < 0.5) {
       return {
@@ -479,7 +501,8 @@ const MM = (() => {
       title: 'Chords', sub: 'Read triads, treble & bass',
       pool: chordPool, make: chordStaffQuestion,
       learn: [
-        'A triad is 3 notes stacked in thirds — all on lines or all on spaces.',
+        'A triad is 3 notes stacked in thirds. In root position they sit all on lines or all on spaces.',
+        'Hard mode inverts chords, which breaks that pattern: look for the one wider gap, the root sits just above it.',
         'The bottom note (in root position) is the root and names the chord.',
         'Half the chords are in bass clef. Check the clef first: bass lines are G B D F A, spaces A C E G.',
         ...CHORD_GUIDE,
@@ -498,7 +521,8 @@ const MM = (() => {
     },
     pchords: {
       title: 'Piano chords', sub: 'Shape ↔ chord name', piano: range(60, 83),
-      pool: chordPool, make: chordPianoQuestion,
+      // Own ids: playing a shape is a different skill from reading it, so it gets its own weight.
+      pool: (adv) => chordPool(adv).map((c) => ({ ...c, id: `p${c.id}` })), make: chordPianoQuestion,
       learn: [
         'Major chord: root, skip 3 keys, then skip 2 (4 + 3 half steps).',
         'Minor chord: root, skip 2 keys, then skip 3 (3 + 4 half steps).',
@@ -527,7 +551,8 @@ const MM = (() => {
       make: countQuestion,
       learn: [
         'Time signature: top = beats per measure, bottom = which note gets the beat.',
-        '4/4: four quarter-note beats. 3/4: three (waltz). 6/8: six eighth notes.',
+        '4/4: four quarter-note beats. 3/4: three (waltz).',
+        '6/8, 9/8, 12/8 are compound: eighth notes in groups of three, so 6/8 is felt as 2 dotted-quarter beats.',
         'Add up the notes; every measure must equal the top number.',
       ],
     },
@@ -556,7 +581,7 @@ const MM = (() => {
         'Listen to its color: low notes feel dark and warm, high notes bright and thin. Every note has its own shade.',
         'Start with one anchor note (C or A). Hum it during the day and check yourself here.',
         'Missed it? Tap the card to hear it again before you continue.',
-        'This builds slowly for most adults. Short daily sessions beat long ones.',
+        'Honest note: true perfect pitch is very rare in adults. What practice does build is a reliable memory for a few anchor notes, which makes everything else easier. Short daily sessions beat long ones.',
         'Hard mode spreads the notes over three octaves.',
       ],
     },

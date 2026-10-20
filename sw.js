@@ -3,7 +3,7 @@
 // NETWORK_TIMEOUT_MS, it serves the last copy saved.
 // Bumping VERSION re-downloads the whole offline copy on every device and deletes the old one.
 // Optional: online visits already get the latest files without it.
-const VERSION = '2026-10-19-pitch';
+const VERSION = '2026-10-20-fixes';
 const CACHE = `musicmentor-${VERSION}`;
 const NETWORK_TIMEOUT_MS = 5000;
 const PIANO = ['C7'];
