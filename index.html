@@ -208,11 +208,14 @@
   .met-actions .next { margin-top: 6px; }
   .met-actions .alt { flex: 0 0 34%; background: var(--card); }
   #metPlay.on { background: var(--bad); }
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; padding: 6px 0; }
-  .chips button { padding: 6px 12px; border-radius: 999px; background: var(--bg); color: var(--dim); font-size: 14px; }
-  .chips button.on { background: var(--card2); color: var(--accent); }
-  .set-row.wrap { flex-wrap: wrap; gap: 4px 12px; padding: 6px 0; }
-  .set-row.wrap .chips { flex: 1; min-width: 60%; }
+  /* A setting with several options: its name on top, then one row of equal-width options */
+  .set-col { padding: 12px 0 14px; font-size: 15px; }
+  .set-row + .set-col, .set-col + .set-col { border-top: 1px solid var(--card2); }
+  .opts { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; margin-top: 10px;
+    background: var(--bg); border-radius: 12px; padding: 3px; }
+  .opts button { height: 36px; padding: 0 2px; border-radius: 9px; color: var(--dim); font-size: 14px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .opts button.on { background: var(--card2); color: var(--accent); font-weight: 600; }
+  @media (max-width: 360px) { .opts button { font-size: 12.5px; } }
   .step { display: flex; align-items: center; gap: 4px; background: var(--bg); border-radius: 999px; padding: 3px; }
   .step button { width: 34px; height: 30px; border-radius: 999px; font-size: 18px; color: var(--accent); }
   .step span { min-width: 34px; text-align: center; font-variant-numeric: tabular-nums; font-size: 15px; }
@@ -295,10 +298,10 @@
   </div>
   <div class="settings">
     <div class="set-row">Beats per bar <div class="step" data-k="beats"><button data-d="-1" aria-label="Fewer beats">−</button><span></span><button data-d="1" aria-label="More beats">+</button></div></div>
-    <div class="set-row wrap">Meter <div class="chips" id="metMeters"></div></div>
-    <div class="set-row wrap">Subdivision <div class="chips" data-set="sub"></div></div>
-    <div class="set-row wrap">Sound <div class="chips" data-set="sound"></div></div>
-    <div class="set-row wrap">Look <div class="chips" data-set="look"></div></div>
+    <div class="set-col">Meter<div class="opts" id="metMeters"></div></div>
+    <div class="set-col">Subdivision<div class="opts" data-set="sub"></div></div>
+    <div class="set-col">Sound<div class="opts" data-set="sound"></div></div>
+    <div class="set-col">Look<div class="opts" data-set="look"></div></div>
   </div>
 </div>
 

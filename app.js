@@ -554,7 +554,7 @@ document.addEventListener('keydown', (e) => {
 // queue), so timing stays exact even when the page is busy; visuals follow that clock.
 S.met = MET.merge(S.met);
 const LOOKS = { count: 'Count', pendulum: 'Pendulum', flash: 'Flash' };
-const SOUND_NAMES = { click: 'Click', beep: 'Beep', wood: 'Woodblock', drums: 'Drums', piano: 'Piano' };
+const SOUND_NAMES = { click: 'Click', beep: 'Beep', wood: 'Wood', drums: 'Drums', piano: 'Piano' };
 // Seconds of clicks queued ahead of the audio clock. Longer while the page is hidden,
 // because browsers then run the top-up timer only about once a second.
 const lookahead = () => (document.hidden ? 1.5 : 0.2);
@@ -776,10 +776,10 @@ function setBpm(v) {
 function renderMetro() {
   $('metSlider').min = MET.MIN;
   $('metSlider').max = MET.MAX;
-  const chips = (set, opts) => Object.entries(opts).map(([v, label]) => `<button data-v="${v}" class="${S.met[set] === v ? 'on' : ''}">${label}</button>`).join('');
-  document.querySelector('[data-set="sub"]').innerHTML = chips('sub', Object.fromEntries(Object.entries(MET.SUBDIVISIONS).map(([k, x]) => [k, x.label])));
-  document.querySelector('[data-set="sound"]').innerHTML = chips('sound', SOUND_NAMES);
-  document.querySelector('[data-set="look"]').innerHTML = chips('look', LOOKS);
+  const opts = (set, list) => Object.entries(list).map(([v, label]) => `<button data-v="${v}" class="${S.met[set] === v ? 'on' : ''}">${label}</button>`).join('');
+  document.querySelector('[data-set="sub"]').innerHTML = opts('sub', Object.fromEntries(Object.entries(MET.SUBDIVISIONS).map(([k, x]) => [k, x.label])));
+  document.querySelector('[data-set="sound"]').innerHTML = opts('sound', SOUND_NAMES);
+  document.querySelector('[data-set="look"]').innerHTML = opts('look', LOOKS);
   const meter = MET.meterOf(S.met.accents);
   $('metMeters').innerHTML = Object.keys(MET.METERS).map((m) => `<button data-meter="${m}" class="${m === meter ? 'on' : ''}">${m}</button>`).join('');
   document.querySelector('#metro .step span').textContent = S.met.beats;
