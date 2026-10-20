@@ -3,12 +3,12 @@
 // NETWORK_TIMEOUT_MS, it serves the last copy saved.
 // Bumping VERSION re-downloads the whole offline copy on every device and deletes the old one.
 // Optional: online visits already get the latest files without it.
-const VERSION = '2026-10-20-fixes';
+const VERSION = '2026-10-20-metronome';
 const CACHE = `musicmentor-${VERSION}`;
 const NETWORK_TIMEOUT_MS = 5000;
 const PIANO = ['C7'];
 for (let o = 2; o <= 6; o++) PIANO.push(...['C', 'Ds', 'Fs', 'A'].map((n) => n + o));
-const ASSETS = ['./', 'app.js', 'theory.js', 'vexflow.js', ...PIANO.map((n) => `piano/${n}.mp3`)];
+const ASSETS = ['./', 'app.js', 'theory.js', 'metronome.js', 'vexflow.js', ...PIANO.map((n) => `piano/${n}.mp3`)];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));

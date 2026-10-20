@@ -167,11 +167,63 @@
   .row { display: flex; gap: 10px; width: 100%; }
   .row .next { flex: 1; }
   .row .next.alt { background: var(--card); }
+
+  /* Tab bar (home + metronome) */
+  .screen.tabbed { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+  #nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; display: flex; justify-content: center;
+    background: #0d0d0fee; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--card); padding: 6px 16px max(8px, env(safe-area-inset-bottom)); }
+  #nav > div { display: flex; width: 100%; max-width: 520px; }
+  #nav button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0; color: var(--dim); font-size: 12px; font-weight: 600; }
+  #nav button.on { color: var(--accent); }
+  #nav svg { width: 24px; height: 24px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* Metronome */
+  .met-display { position: relative; background: var(--card); border-radius: 22px; height: 210px; margin-bottom: 14px;
+    display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .met-status { position: absolute; left: 0; right: 0; bottom: 10px; text-align: center; color: var(--dim); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .met-num { font-size: 120px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; color: var(--card2); transition: color .08s; }
+  .met-num.l1 { color: var(--ink); } .met-num.l2 { color: #93c5fd; } .met-num.l3 { color: var(--accent); }
+  .met-display.silent .met-num { color: var(--card2); }
+  .met-display svg { height: 172px; width: auto; margin-bottom: 24px; }
+  .met-flash { position: absolute; inset: 0; opacity: 0; }
+  .met-flash.go { animation: met-flash var(--fade, .25s) ease-out; }
+  @keyframes met-flash { from { opacity: var(--peak, 1); } to { opacity: 0; } }
+  .met-big { position: relative; font-size: 34px; font-weight: 800; letter-spacing: -.5px; }
+  .beats { display: flex; justify-content: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap; }
+  .bt { width: 34px; height: 46px; border-radius: 10px; background: var(--card); display: flex; flex-direction: column-reverse; gap: 3px; padding: 6px; }
+  .bt i { display: block; flex: 1; border-radius: 3px; background: var(--card2); }
+  .bt.l1 i:nth-child(-n+1), .bt.l2 i:nth-child(-n+2), .bt.l3 i:nth-child(-n+3) { background: var(--dim); }
+  .bt.l3 i:nth-child(-n+3) { background: var(--accent); }
+  .bt.now { box-shadow: 0 0 0 2px var(--ink); }
+  .bt.now.l1 i:nth-child(-n+1), .bt.now.l2 i:nth-child(-n+2) { background: var(--ink); }
+  .center { text-align: center; }
+  .tempo { display: flex; align-items: center; justify-content: space-between; margin: 14px 0 6px; }
+  .round { width: 58px; height: 58px; border-radius: 50%; background: var(--card); font-size: 30px; font-weight: 300; display: grid; place-items: center; }
+  .round:active, .bt:active { transform: scale(.94); }
+  .bpm { text-align: center; }
+  .bpm b { font-size: 64px; font-weight: 800; letter-spacing: -1.5px; line-height: 1; font-variant-numeric: tabular-nums; }
+  .bpm span { font-size: 14px; color: var(--dim); margin-left: 4px; font-weight: 600; }
+  input[type=range] { width: 100%; accent-color: var(--accent); margin: 8px 0 4px; height: 28px; }
+  .met-actions { display: flex; gap: 10px; margin-bottom: 22px; }
+  .met-actions .next { margin-top: 6px; }
+  .met-actions .alt { flex: 0 0 34%; background: var(--card); }
+  #metPlay.on { background: var(--bad); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; padding: 6px 0; }
+  .chips button { padding: 6px 12px; border-radius: 999px; background: var(--bg); color: var(--dim); font-size: 14px; }
+  .chips button.on { background: var(--card2); color: var(--accent); }
+  .set-row.wrap { flex-wrap: wrap; gap: 4px 12px; padding: 6px 0; }
+  .set-row.wrap .chips { flex: 1; min-width: 60%; }
+  .step { display: flex; align-items: center; gap: 4px; background: var(--bg); border-radius: 999px; padding: 3px; }
+  .step button { width: 34px; height: 30px; border-radius: 999px; font-size: 18px; color: var(--accent); }
+  .step span { min-width: 34px; text-align: center; font-variant-numeric: tabular-nums; font-size: 15px; }
+  .sub-rows { padding-left: 12px; }
+  .sub-rows .set-row { min-height: 44px; font-size: 14px; color: var(--dim); }
 </style>
 </head>
 <body>
 
-<div id="home" class="screen">
+<div id="home" class="screen tabbed">
   <div class="home-top">
     <h1>MusicMentor</h1>
   </div>
@@ -229,12 +281,58 @@
   </div>
 </div>
 
+<div id="metro" class="screen tabbed" hidden>
+  <div class="home-top"><h1>Metronome</h1></div>
+  <div class="met-display" id="metDisplay"></div>
+  <div class="beats" id="metBeats"></div>
+  <div class="muted center">Tap a beat to change its accent</div>
+  <div class="tempo">
+    <button class="round" data-bpm="-1" aria-label="Slower">−</button>
+    <div class="bpm"><b id="metBpm"></b><span>BPM</span><div class="muted" id="metName"></div></div>
+    <button class="round" data-bpm="1" aria-label="Faster">+</button>
+  </div>
+  <input type="range" id="metSlider" aria-label="Tempo">
+  <div class="met-actions">
+    <button class="next alt" id="metTap">Tap tempo</button>
+    <button class="next" id="metPlay">Start</button>
+  </div>
+  <div class="settings">
+    <div class="set-row">Beats per bar <div class="step" data-k="beats"><button data-d="-1" aria-label="Fewer beats">−</button><span></span><button data-d="1" aria-label="More beats">+</button></div></div>
+    <div class="set-row wrap">Meter <div class="chips" id="metMeters"></div></div>
+    <div class="set-row wrap">Subdivision <div class="chips" data-set="sub"></div></div>
+    <div class="set-row wrap">Sound <div class="chips" data-set="sound"></div></div>
+    <div class="set-row wrap">Look <div class="chips" data-set="look"></div></div>
+  </div>
+  <div class="section">Practice tools</div>
+  <div class="settings">
+    <div class="set-row"><div>Speed trainer<div class="muted">Gets faster as you play</div></div>
+      <button class="switch" id="metSpeed" role="switch" aria-label="Speed trainer"></button></div>
+    <div class="sub-rows" id="metSpeedRows">
+      <div class="set-row">Add BPM <div class="step" data-k="speed.step"><button data-d="-1">−</button><span></span><button data-d="1">+</button></div></div>
+      <div class="set-row">Every … bars <div class="step" data-k="speed.every"><button data-d="-1">−</button><span></span><button data-d="1">+</button></div></div>
+      <div class="set-row">Stop at BPM <div class="step" data-k="speed.target"><button data-d="-5">−</button><span></span><button data-d="5">+</button></div></div>
+    </div>
+    <div class="set-row"><div>Gap trainer<div class="muted">Silent bars: keep the beat in your head</div></div>
+      <button class="switch" id="metGap" role="switch" aria-label="Gap trainer"></button></div>
+    <div class="sub-rows" id="metGapRows">
+      <div class="set-row">Play bars <div class="step" data-k="gap.play"><button data-d="-1">−</button><span></span><button data-d="1">+</button></div></div>
+      <div class="set-row">Silent bars <div class="step" data-k="gap.mute"><button data-d="-1">−</button><span></span><button data-d="1">+</button></div></div>
+    </div>
+  </div>
+</div>
+
+<nav id="nav"><div>
+  <button data-tab="home"><svg viewBox="0 0 24 24"><circle cx="7" cy="17.5" r="3"/><circle cx="18" cy="15.5" r="3"/><path d="M10 17.5V5l11-2v12.5"/></svg>Drills</button>
+  <button data-tab="metro"><svg viewBox="0 0 24 24"><path d="M9 3h6l4 18H5z"/><path d="M12 17 16 7"/><path d="M8 17h8"/></svg>Metronome</button>
+</div></nav>
+
 <div id="announce" hidden></div>
 
 <div class="sheet" id="sheet" hidden><div id="sheetBody"></div></div>
 
 <script src="vexflow.js"></script>
 <script src="theory.js"></script>
+<script src="metronome.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

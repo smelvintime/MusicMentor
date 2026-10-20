@@ -157,7 +157,10 @@ let advanceTimer;
 function show(id) {
   silence();
   clearTimeout(advanceTimer); // leaving mid-advance must not pull you back into the quiz
-  ['home', 'quiz', 'done'].forEach((s) => { $(s).hidden = s !== id; });
+  if (id !== 'metro') metStop();
+  ['home', 'quiz', 'done', 'metro'].forEach((s) => { $(s).hidden = s !== id; });
+  $('nav').hidden = id !== 'home' && id !== 'metro';
+  document.querySelectorAll('#nav [data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === id));
   $('sheet').hidden = true;
 }
 
@@ -544,7 +547,334 @@ document.addEventListener('keydown', (e) => {
   if (b) choose(b.textContent, b);
 });
 
+// ---------- metronome ----------
+// Its own tab. Clicks are scheduled ahead on the audio clock (a timer only tops up the
+// queue), so timing stays exact even when the page is busy; visuals follow that clock.
+S.met = MET.merge(S.met);
+const LOOKS = { count: 'Count', pendulum: 'Pendulum', flash: 'Flash' };
+const SOUND_NAMES = { click: 'Click', beep: 'Beep', wood: 'Woodblock', cowbell: 'Cowbell', drums: 'Drums', piano: 'Piano' };
+const LOOKAHEAD = 0.12; // seconds of clicks queued ahead of the audio clock
+const M = { on: false, timer: 0, out: null, next: 0, beatStart: 0, beat: 0, sub: 0, bar: 0, count: 0, queue: [], last: null, start: 0, base: null, taps: [], lock: null };
+
+// Synthesized sounds: level 3 strong, 2 medium, 1 normal, 0.5 subdivision.
+const VOL = { 3: 1, 2: 0.75, 1: 0.55, 0.5: 0.3 };
+let noiseBuf;
+function noise(ctx) {
+  if (!noiseBuf) {
+    noiseBuf = ctx.createBuffer(1, ctx.sampleRate / 2, ctx.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  return Object.assign(ctx.createBufferSource(), { buffer: noiseBuf });
+}
+function env(ctx, t, peak, decay) {
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(peak, t + 0.002);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+  g.connect(M.out);
+  return g;
+}
+function tone(ctx, t, type, f, peak, decay, f2) {
+  const o = Object.assign(ctx.createOscillator(), { type });
+  o.frequency.setValueAtTime(f, t);
+  if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + decay);
+  o.connect(env(ctx, t, peak, decay));
+  o.start(t);
+  o.stop(t + decay + 0.02);
+}
+function hiss(ctx, t, type, f, q, peak, decay) {
+  const src = noise(ctx);
+  const fl = ctx.createBiquadFilter();
+  fl.type = type;
+  fl.frequency.value = f;
+  fl.Q.value = q;
+  src.connect(fl).connect(env(ctx, t, peak, decay));
+  src.start(t);
+  src.stop(t + decay + 0.02);
+}
+const PIANO_CLICK = { 3: 84, 2: 79, 1: 72, 0.5: 67 }; // C6, G5, C5, G4
+const pianoBuf = {};
+const SOUNDS = {
+  click: (c, t, l) => hiss(c, t, 'bandpass', { 3: 5200, 2: 4200, 1: 3300, 0.5: 2600 }[l], 1.2, VOL[l] * 1.6, 0.03),
+  beep: (c, t, l) => tone(c, t, 'sine', { 3: 1760, 2: 1320, 1: 880, 0.5: 660 }[l], VOL[l] * 0.6, 0.08),
+  wood: (c, t, l) => {
+    const f = { 3: 1450, 2: 1200, 1: 950, 0.5: 800 }[l];
+    tone(c, t, 'triangle', f, VOL[l] * 0.9, 0.07, f * 0.85);
+    hiss(c, t, 'bandpass', f * 2, 3, VOL[l] * 0.4, 0.015);
+  },
+  cowbell: (c, t, l) => {
+    const k = l >= 2 ? 1 : 0.84;
+    const fl = c.createBiquadFilter();
+    fl.type = 'bandpass';
+    fl.frequency.value = 900 * k;
+    fl.Q.value = 2;
+    fl.connect(env(c, t, VOL[l] * 0.9, l === 0.5 ? 0.1 : 0.3));
+    [587, 845].forEach((f) => {
+      const o = Object.assign(c.createOscillator(), { type: 'square' });
+      o.frequency.value = f * k;
+      o.connect(fl);
+      o.start(t);
+      o.stop(t + 0.35);
+    });
+  },
+  drums: (c, t, l) => {
+    if (l === 3) return tone(c, t, 'sine', 150, 1, 0.3, 45); // kick
+    if (l === 2) { // snare
+      hiss(c, t, 'highpass', 1500, 0.7, 0.6, 0.16);
+      return tone(c, t, 'triangle', 190, 0.5, 0.08);
+    }
+    hiss(c, t, 'highpass', 7000, 0.8, l === 1 ? 0.5 : 0.25, l === 1 ? 0.05 : 0.03); // closed hi-hat
+  },
+  piano: (c, t, l) => {
+    const p = pianoBuf[PIANO_CLICK[l]];
+    if (!p) return SOUNDS.beep(c, t, l); // samples still loading
+    const src = Object.assign(c.createBufferSource(), { buffer: p.buf });
+    src.playbackRate.value = 2 ** ((PIANO_CLICK[l] - p.base) / 12);
+    src.connect(env(c, t, VOL[l] * 0.9, 0.5));
+    src.start(t);
+    src.stop(t + 0.6);
+  },
+};
+
+function metSchedule() {
+  const ctx = ac;
+  while (M.next < ctx.currentTime + LOOKAHEAD) {
+    const { at } = MET.SUBDIVISIONS[S.met.sub];
+    const level = M.sub === 0 ? S.met.accents[M.beat] ?? 1 : 0.5;
+    const silent = S.met.gap.on && MET.gapSilent(S.met.gap, M.bar);
+    if (level && !silent) SOUNDS[S.met.sound](ctx, M.next, level);
+    M.queue.push({ t: M.next, beat: M.beat, sub: M.sub, level, silent, bar: M.bar });
+    if (M.queue.length > 64) M.queue.shift(); // hidden tab: no frames drain it
+    M.sub++;
+    if (M.sub >= at.length) {
+      M.sub = 0;
+      M.beatStart += 60 / S.met.bpm;
+      M.beat++;
+      if (M.beat >= S.met.beats) { M.beat = 0; M.bar++; metBar(); }
+    }
+    M.next = M.beatStart + at[M.sub] * (60 / S.met.bpm);
+  }
+}
+
+// Speed trainer: step the tempo at bar lines.
+function metBar() {
+  if (!S.met.speed.on) return;
+  const bpm = MET.trainerBpm(M.base.bpm, S.met.speed, M.bar - M.base.bar);
+  if (bpm !== S.met.bpm) { S.met.bpm = bpm; save(); syncBpm(); }
+}
+
+async function metStart() {
+  const ctx = audio();
+  if (S.met.sound === 'piano') Object.values(PIANO_CLICK).forEach((m) => load(nearest(m)).then((buf) => { pianoBuf[m] = { buf, base: nearest(m) }; }).catch(() => {}));
+  M.out = ctx.createGain();
+  M.out.gain.value = 0.9;
+  M.out.connect(ctx.destination);
+  Object.assign(M, { on: true, beat: 0, sub: 0, bar: 0, count: 0, queue: [], last: null, start: ctx.currentTime + 0.06 });
+  M.next = M.beatStart = M.start;
+  M.base = { bpm: S.met.bpm, bar: 0 };
+  metSchedule();
+  M.timer = setInterval(metSchedule, 25);
+  requestAnimationFrame(metFrame);
+  $('metPlay').textContent = 'Stop';
+  $('metPlay').classList.add('on');
+  try { M.lock = await navigator.wakeLock?.request('screen'); } catch { /* screen may still sleep */ }
+}
+
+function metStop() {
+  if (!M.on) return;
+  M.on = false;
+  clearInterval(M.timer);
+  M.out.disconnect(); // cuts clicks already queued ahead
+  M.lock?.release().catch(() => {});
+  M.lock = null;
+  $('metPlay').textContent = 'Start';
+  $('metPlay').classList.remove('on');
+  renderLook();
+}
+
+// ---- visuals, driven by the audio clock ----
+function metFrame() {
+  if (!M.on) return;
+  const now = ac.currentTime;
+  while (M.queue.length && M.queue[0].t <= now) metHit(M.queue.shift());
+  if (S.met.look === 'pendulum') swing(now);
+  requestAnimationFrame(metFrame);
+}
+
+function metHit(e) {
+  const d = $('metDisplay');
+  if (e.sub === 0) {
+    M.last = { t: e.t, n: M.count++ };
+    document.querySelectorAll('#metBeats .bt').forEach((b, i) => b.classList.toggle('now', i === e.beat));
+    d.classList.toggle('silent', e.silent);
+    const secs = Math.max(0, Math.floor(e.t - M.start));
+    $('metStatus').textContent = `Bar ${e.bar + 1} · ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}${e.silent ? ' · silent' : ''}`;
+    const num = $('metNum');
+    if (num) { num.textContent = e.beat + 1; num.className = `met-num l${e.silent ? 0 : e.level}`; }
+  }
+  const fl = $('metFlashBg');
+  if (fl && e.level && !e.silent) {
+    fl.style.background = { 3: 'var(--accent)', 2: '#93c5fd', 1: 'var(--ink)', 0.5: 'var(--ink)' }[e.level];
+    fl.style.setProperty('--peak', { 3: 1, 2: 0.8, 1: 0.55, 0.5: 0.18 }[e.level]);
+    fl.style.setProperty('--fade', `${Math.min(0.3, 30 / S.met.bpm)}s`);
+    fl.classList.remove('go');
+    void fl.offsetWidth; // restart the animation
+    fl.classList.add('go');
+  }
+}
+
+// Classic wind-up pendulum: at an end of its swing on every beat, the weight higher for slower tempos.
+function swing(now) {
+  const arm = $('metArm');
+  if (!arm) return;
+  let a = 26;
+  if (M.last) a = 26 * Math.cos(Math.PI * (M.last.n + Math.min(1, (now - M.last.t) / (60 / S.met.bpm))));
+  arm.setAttribute('transform', `rotate(${a.toFixed(2)} 100 196)`);
+}
+
+function renderLook() {
+  const d = $('metDisplay');
+  d.classList.remove('silent');
+  const status = `<div class="met-status" id="metStatus">${M.on ? '' : 'Press Start or Space'}</div>`;
+  if (S.met.look === 'count') d.innerHTML = `<div class="met-num" id="metNum">1</div>${status}`;
+  if (S.met.look === 'flash') d.innerHTML = `<div class="met-flash" id="metFlashBg"></div><div class="met-big" id="metFlashText"></div>${status}`;
+  if (S.met.look === 'pendulum') {
+    d.innerHTML = `<svg viewBox="0 0 200 210" aria-hidden="true">
+      <path d="M62 204h76l-22-188H84z" fill="#2a2a2e"/><path d="M70 204h60" stroke="#48484d" stroke-width="3"/>
+      <g id="metArm"><path d="M100 196V28" stroke="#f2f2f4" stroke-width="3" stroke-linecap="round"/><rect id="metWeight" x="88" width="24" height="16" rx="3" fill="#4a9eff"/></g>
+      <circle cx="100" cy="196" r="5" fill="#8e8e93"/></svg>${status}`;
+    swing(0);
+  }
+  syncBpm();
+}
+
+function renderBeats() {
+  $('metBeats').innerHTML = S.met.accents.map((l, i) => `<button class="bt l${l}" data-beat="${i}" aria-label="Beat ${i + 1} accent">${'<i></i>'.repeat(3)}</button>`).join('');
+}
+
+function syncBpm() {
+  const { bpm } = S.met;
+  $('metBpm').textContent = bpm;
+  $('metName').textContent = MET.tempoName(bpm);
+  $('metSlider').value = bpm;
+  $('metWeight')?.setAttribute('y', 40 + ((bpm - MET.MIN) / (MET.MAX - MET.MIN)) * 110);
+  const ft = $('metFlashText');
+  if (ft) ft.textContent = `${bpm} · ${MET.tempoName(bpm)}`;
+}
+
+function setBpm(v) {
+  S.met.bpm = MET.clampBpm(v);
+  if (M.on) M.base = { bpm: S.met.bpm, bar: M.bar }; // a manual change restarts the speed trainer from here
+  save();
+  syncBpm();
+}
+
+const STEPS = {
+  beats: { min: 1, max: 12 }, 'speed.step': { min: 1, max: 20 }, 'speed.every': { min: 1, max: 16 },
+  'speed.target': { min: MET.MIN, max: MET.MAX }, 'gap.play': { min: 1, max: 8 }, 'gap.mute': { min: 1, max: 8 },
+};
+const getK = (k) => k.split('.').reduce((o, p) => o[p], S.met);
+function setK(k, v) {
+  const parts = k.split('.');
+  const last = parts.pop();
+  parts.reduce((o, p) => o[p], S.met)[last] = v;
+}
+
+function renderMetro() {
+  $('metSlider').min = MET.MIN;
+  $('metSlider').max = MET.MAX;
+  const chips = (set, opts) => Object.entries(opts).map(([v, label]) => `<button data-v="${v}" class="${S.met[set] === v ? 'on' : ''}">${label}</button>`).join('');
+  document.querySelector('[data-set="sub"]').innerHTML = chips('sub', Object.fromEntries(Object.entries(MET.SUBDIVISIONS).map(([k, x]) => [k, x.label])));
+  document.querySelector('[data-set="sound"]').innerHTML = chips('sound', SOUND_NAMES);
+  document.querySelector('[data-set="look"]').innerHTML = chips('look', LOOKS);
+  const meter = MET.meterOf(S.met.accents);
+  $('metMeters').innerHTML = Object.keys(MET.METERS).map((m) => `<button data-meter="${m}" class="${m === meter ? 'on' : ''}">${m}</button>`).join('');
+  document.querySelectorAll('#metro .step').forEach((el) => { el.querySelector('span').textContent = getK(el.dataset.k); });
+  for (const [id, key, rows] of [['metSpeed', 'speed', 'metSpeedRows'], ['metGap', 'gap', 'metGapRows']]) {
+    $(id).classList.toggle('on', S.met[key].on);
+    $(id).setAttribute('aria-checked', S.met[key].on);
+    $(rows).hidden = !S.met[key].on;
+  }
+  renderBeats();
+  renderLook();
+}
+
+// ---- metronome events ----
+$('nav').onclick = (e) => {
+  const t = e.target.closest('[data-tab]')?.dataset.tab;
+  if (!t) return;
+  S.tab = t;
+  save();
+  if (t === 'metro') { renderMetro(); show('metro'); } else renderHome();
+};
+$('metPlay').onclick = () => (M.on ? metStop() : metStart());
+$('metSlider').oninput = (e) => setBpm(+e.target.value);
+$('metTap').onclick = () => {
+  const now = performance.now();
+  M.taps = [...M.taps, now].slice(-8);
+  const bpm = MET.tapTempo(M.taps);
+  if (bpm) setBpm(bpm);
+};
+$('metBeats').onclick = (e) => {
+  const b = e.target.closest('[data-beat]');
+  if (!b) return;
+  S.met.accents[+b.dataset.beat] = MET.cycleAccent(S.met.accents[+b.dataset.beat]);
+  save();
+  renderMetro();
+};
+// Hold − / + to keep changing the tempo.
+let holdTimer;
+const stopHold = () => { clearTimeout(holdTimer); clearInterval(holdTimer); };
+document.querySelectorAll('[data-bpm]').forEach((b) => {
+  const d = +b.dataset.bpm;
+  b.addEventListener('pointerdown', () => {
+    setBpm(S.met.bpm + d);
+    holdTimer = setTimeout(() => { holdTimer = setInterval(() => setBpm(S.met.bpm + d), 70); }, 400);
+  });
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => b.addEventListener(ev, stopHold));
+  b.addEventListener('click', (e) => { if (e.detail === 0) setBpm(S.met.bpm + d); }); // keyboard
+});
+$('metro').addEventListener('click', (e) => {
+  const step = e.target.closest('.step [data-d]');
+  if (step) {
+    const k = step.closest('.step').dataset.k;
+    const { min, max } = STEPS[k];
+    const v = Math.min(max, Math.max(min, getK(k) + +step.dataset.d));
+    setK(k, v);
+    if (k === 'beats') S.met.accents = MET.resize(S.met.accents, v);
+  }
+  const chip = e.target.closest('[data-set] [data-v]');
+  if (chip) {
+    S.met[chip.closest('[data-set]').dataset.set] = chip.dataset.v;
+    if (M.on && S.met.sound === 'piano') { metStop(); metStart(); } // load the samples
+  }
+  const meter = e.target.closest('[data-meter]');
+  if (meter) {
+    S.met.accents = [...MET.METERS[meter.dataset.meter]];
+    S.met.beats = S.met.accents.length;
+  }
+  const sw = e.target.closest('#metSpeed, #metGap');
+  if (sw) {
+    const key = sw.id === 'metSpeed' ? 'speed' : 'gap';
+    S.met[key].on = !S.met[key].on;
+    if (M.on) M.base = { bpm: S.met.bpm, bar: M.bar };
+  }
+  if (step || chip || meter || sw) { save(); renderMetro(); }
+});
+document.addEventListener('keydown', (e) => {
+  if ($('metro').hidden || e.target.matches('input')) return;
+  const d = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[e.key];
+  if (d) { e.preventDefault(); setBpm(S.met.bpm + d * (e.shiftKey ? 5 : 1)); }
+  if (e.key === ' ') {
+    e.preventDefault();
+    e.target.blur?.(); // a focused button would otherwise also activate on keyup
+    $('metPlay').click();
+  }
+  if (e.key.toLowerCase() === 't') $('metTap').click();
+});
+
 syncSound();
-renderHome();
+if (S.tab === 'metro') { renderMetro(); show('metro'); } else renderHome();
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((e) => console.error('Offline mode unavailable', e));
