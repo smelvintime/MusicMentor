@@ -265,6 +265,13 @@ const MM = (() => {
     tie: 'A tie (curved line) joins two notes of the same pitch into one long sound: add their beats together.',
   };
 
+  const valueKind = (v) => (v.dur.includes('r') ? 'rest' : v.tie ? 'tie' : v.dur.includes('d') ? 'dotted' : 'note');
+  // Wrong-answer names only, so the smaller kinds still fill four options.
+  const VALUE_LURES = [
+    { dur: 'wd', label: 'Dotted whole note' }, { dur: '16d', label: 'Dotted sixteenth note' },
+    { dur: 'q', tie: 'h', label: 'Quarter tied to half' }, { dur: '8', tie: '8', label: 'Eighth tied to eighth' },
+  ];
+
   function valueQuestion(it) {
     const v = it.v;
     const rest = v.dur.includes('r');
@@ -274,7 +281,8 @@ const MM = (() => {
     if (Math.random() < 0.5) {
       return { prompt, ask: 'How many beats? (in 4/4)', choices: pickRandom(v.beats, BEATS), correct: v.beats, hint };
     }
-    const pool = [...VALUES, ...VALUES_HARD].filter((x) => x.dur.includes('r') === rest).map((x) => x.label);
+    // Every option is the same kind as the answer (all ties, all dotted...), so the wording never gives it away.
+    const pool = [...VALUES, ...VALUES_HARD, ...VALUE_LURES].filter((x) => valueKind(x) === valueKind(v)).map((x) => x.label);
     return { prompt, ask: 'What is this called?', choices: pickRandom(v.label, pool), correct: v.label, hint };
   }
 
@@ -448,7 +456,8 @@ const MM = (() => {
         ...shared,
         prompt: { type: 'ear' },
         ask: 'Name the interval (tap card to replay)',
-        choices: pickRandom(it.label, intervalPool(adv, hard).map((i) => i.label)),
+        // Same direction only: "… down" next to upward options would give it away.
+        choices: pickRandom(it.label, intervalPool(adv, hard).filter((i) => Math.sign(i.st) === Math.sign(it.st)).map((i) => i.label)),
         correct: it.label,
       };
     }

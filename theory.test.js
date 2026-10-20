@@ -96,4 +96,20 @@ for (const sig of ['6/8', '9/8', '12/8']) {
     else assert.strictEqual(q.ask, 'How many eighth notes per measure?', sig);
   }
 }
+// Multiple-choice options never give the answer away by their wording.
+const kindOf = (label) => (/rest/.test(label) ? 'rest' : /tied/.test(label) ? 'tie' : /Dotted/.test(label) ? 'dotted' : 'note');
+for (const it of DECKS.values.pool(true, true)) {
+  for (let k = 0; k < 30; k++) {
+    const q = DECKS.values.make(it, true, true);
+    if (q.ask !== 'What is this called?') continue;
+    assert.strictEqual(q.choices.length, 4, `${it.label} has ${q.choices.length} choices`);
+    q.choices.forEach((c) => assert.strictEqual(kindOf(c), kindOf(q.correct), `${q.correct} offered with ${c}`));
+  }
+}
+for (const it of DECKS.relative.pool(true, true)) {
+  for (let k = 0; k < 20; k++) {
+    const q = DECKS.relative.make(it, true, true);
+    if (q.choices) q.choices.forEach((c) => assert.strictEqual(c.endsWith(' down'), q.correct.endsWith(' down'), `${q.correct} offered with ${c}`));
+  }
+}
 console.log('theory ok');
