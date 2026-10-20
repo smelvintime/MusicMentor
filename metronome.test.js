@@ -36,22 +36,11 @@ assert.strictEqual(MET.tapTempo([0, 500, 1000, 1500]), 120);
 assert.strictEqual(MET.tapTempo([0, 1000, 5000, 5600]), 100);
 assert.strictEqual(MET.tapTempo([0, 9000]), null);
 
-// Speed trainer climbs in steps and stops at the target, in either direction.
-const sp = { step: 5, every: 4, target: 110 };
-assert.strictEqual(MET.trainerBpm(100, sp, 3), 100);
-assert.strictEqual(MET.trainerBpm(100, sp, 4), 105);
-assert.strictEqual(MET.trainerBpm(100, sp, 40), 110);
-assert.strictEqual(MET.trainerBpm(120, sp, 8), 110);
-
-// Gap trainer: 2 on, 1 off.
-assert.deepStrictEqual([0, 1, 2, 3, 4, 5].map((b) => MET.gapSilent({ play: 2, mute: 1 }, b)), [false, false, true, false, false, true]);
-
 // Old or partial saved settings still load into a valid state.
 const m = MET.merge({ bpm: 7, beats: 3, sub: 'nope', speed: { on: true } });
 assert.strictEqual(m.bpm, MET.MIN);
 assert.strictEqual(m.sub, 'quarter');
 assert.strictEqual(m.accents.length, 3);
-assert.strictEqual(m.speed.step, 5);
-assert.ok(m.speed.on);
+assert.ok(!('speed' in m), 'removed settings are dropped');
 assert.deepStrictEqual(MET.merge(undefined), MET.defaults());
 console.log('metronome ok');

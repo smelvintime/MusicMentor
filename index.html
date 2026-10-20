@@ -184,7 +184,6 @@
   .met-status { position: absolute; left: 0; right: 0; bottom: 10px; text-align: center; color: var(--dim); font-size: 13px; font-variant-numeric: tabular-nums; }
   .met-num { font-size: 120px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; color: var(--card2); transition: color .08s; }
   .met-num.l1 { color: var(--ink); } .met-num.l2 { color: #93c5fd; } .met-num.l3 { color: var(--accent); }
-  .met-display.silent .met-num { color: var(--card2); }
   .met-display svg { height: 172px; width: auto; margin-bottom: 24px; }
   .met-flash { position: absolute; inset: 0; opacity: 0; }
   .met-flash.go { animation: met-flash var(--fade, .25s) ease-out; }
@@ -217,8 +216,6 @@
   .step { display: flex; align-items: center; gap: 4px; background: var(--bg); border-radius: 999px; padding: 3px; }
   .step button { width: 34px; height: 30px; border-radius: 999px; font-size: 18px; color: var(--accent); }
   .step span { min-width: 34px; text-align: center; font-variant-numeric: tabular-nums; font-size: 15px; }
-  .sub-rows { padding-left: 12px; }
-  .sub-rows .set-row { min-height: 44px; font-size: 14px; color: var(--dim); }
 </style>
 </head>
 <body>
@@ -302,22 +299,6 @@
     <div class="set-row wrap">Subdivision <div class="chips" data-set="sub"></div></div>
     <div class="set-row wrap">Sound <div class="chips" data-set="sound"></div></div>
     <div class="set-row wrap">Look <div class="chips" data-set="look"></div></div>
-  </div>
-  <div class="section">Practice tools</div>
-  <div class="settings">
-    <div class="set-row"><div>Speed trainer<div class="muted">Gets faster as you play</div></div>
-      <button class="switch" id="metSpeed" role="switch" aria-label="Speed trainer"></button></div>
-    <div class="sub-rows" id="metSpeedRows">
-      <div class="set-row">Add BPM <div class="step" data-k="speed.step"><button data-d="-1">−</button><span></span><button data-d="1">+</button></div></div>
-      <div class="set-row">Every … bars <div class="step" data-k="speed.every"><button data-d="-1">−</button><span></span><button data-d="1">+</button></div></div>
-      <div class="set-row">Stop at BPM <div class="step" data-k="speed.target"><button data-d="-5">−</button><span></span><button data-d="5">+</button></div></div>
-    </div>
-    <div class="set-row"><div>Gap trainer<div class="muted">Silent bars: keep the beat in your head</div></div>
-      <button class="switch" id="metGap" role="switch" aria-label="Gap trainer"></button></div>
-    <div class="sub-rows" id="metGapRows">
-      <div class="set-row">Play bars <div class="step" data-k="gap.play"><button data-d="-1">−</button><span></span><button data-d="1">+</button></div></div>
-      <div class="set-row">Silent bars <div class="step" data-k="gap.mute"><button data-d="-1">−</button><span></span><button data-d="1">+</button></div></div>
-    </div>
   </div>
 </div>
 

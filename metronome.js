@@ -1,4 +1,4 @@
-// Pure metronome logic: tempo, meters, accents, subdivisions, trainers. No DOM. `node metronome.test.js` checks it.
+// Pure metronome logic: tempo, meters, accents, subdivisions. No DOM. `node metronome.test.js` checks it.
 const MET = (() => {
   const MIN = 20;
   const MAX = 300;
@@ -53,32 +53,21 @@ const MET = (() => {
     return clampBpm((60000 * (recent.length - 1)) / (recent.at(-1) - recent[0]));
   }
 
-  // Speed trainer: from `start`, move `step` BPM toward `target` after every `every` bars.
-  function trainerBpm(start, { step, every, target }, bars) {
-    const moved = Math.floor(bars / every) * step;
-    const dist = target - start;
-    return clampBpm(start + Math.sign(dist) * Math.min(moved, Math.abs(dist)));
-  }
-
-  // Gap trainer: play `play` bars, then `mute` bars of silence, repeating. Keep the time in your head.
-  const gapSilent = ({ play, mute }, bar) => bar % (play + mute) >= play;
-
   const defaults = () => ({
     bpm: 100, beats: 4, accents: [...METERS['4/4']], sub: 'quarter', sound: 'click', look: 'count',
-    speed: { on: false, step: 5, every: 4, target: 140 },
-    gap: { on: false, play: 2, mute: 2 },
   });
   // Saved settings over the defaults, so settings added later still get a value.
+  // Keys that are no longer settings are dropped.
   function merge(saved = {}) {
     const d = defaults();
-    const m = { ...d, ...saved, speed: { ...d.speed, ...saved.speed }, gap: { ...d.gap, ...saved.gap } };
+    const m = Object.fromEntries(Object.keys(d).map((k) => [k, saved[k] ?? d[k]]));
     if (!SUBDIVISIONS[m.sub]) m.sub = d.sub;
     m.bpm = clampBpm(m.bpm);
     m.accents = resize(Array.isArray(m.accents) ? m.accents : d.accents, m.beats);
     return m;
   }
 
-  return { MIN, MAX, clampBpm, tempoName, SUBDIVISIONS, cycleAccent, METERS, meterOf, resize, tapTempo, trainerBpm, gapSilent, defaults, merge };
+  return { MIN, MAX, clampBpm, tempoName, SUBDIVISIONS, cycleAccent, METERS, meterOf, resize, tapTempo, defaults, merge };
 })();
 
 if (typeof module !== 'undefined') module.exports = MET;

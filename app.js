@@ -554,7 +554,7 @@ S.met = MET.merge(S.met);
 const LOOKS = { count: 'Count', pendulum: 'Pendulum', flash: 'Flash' };
 const SOUND_NAMES = { click: 'Click', beep: 'Beep', wood: 'Woodblock', cowbell: 'Cowbell', drums: 'Drums', piano: 'Piano' };
 const LOOKAHEAD = 0.12; // seconds of clicks queued ahead of the audio clock
-const M = { on: false, timer: 0, out: null, next: 0, beatStart: 0, beat: 0, sub: 0, bar: 0, count: 0, queue: [], last: null, start: 0, base: null, taps: [], lock: null };
+const M = { on: false, timer: 0, out: null, next: 0, beatStart: 0, beat: 0, sub: 0, bar: 0, count: 0, queue: [], last: null, start: 0, taps: [], lock: null };
 
 // Synthesized sounds: level 3 strong, 2 medium, 1 normal, 0.5 subdivision.
 const VOL = { 3: 1, 2: 0.75, 1: 0.55, 0.5: 0.3 };
@@ -642,26 +642,18 @@ function metSchedule() {
   while (M.next < ctx.currentTime + LOOKAHEAD) {
     const { at } = MET.SUBDIVISIONS[S.met.sub];
     const level = M.sub === 0 ? S.met.accents[M.beat] ?? 1 : 0.5;
-    const silent = S.met.gap.on && MET.gapSilent(S.met.gap, M.bar);
-    if (level && !silent) SOUNDS[S.met.sound](ctx, M.next, level);
-    M.queue.push({ t: M.next, beat: M.beat, sub: M.sub, level, silent, bar: M.bar });
+    if (level) SOUNDS[S.met.sound](ctx, M.next, level);
+    M.queue.push({ t: M.next, beat: M.beat, sub: M.sub, level, bar: M.bar });
     if (M.queue.length > 64) M.queue.shift(); // hidden tab: no frames drain it
     M.sub++;
     if (M.sub >= at.length) {
       M.sub = 0;
       M.beatStart += 60 / S.met.bpm;
       M.beat++;
-      if (M.beat >= S.met.beats) { M.beat = 0; M.bar++; metBar(); }
+      if (M.beat >= S.met.beats) { M.beat = 0; M.bar++; }
     }
     M.next = M.beatStart + at[M.sub] * (60 / S.met.bpm);
   }
-}
-
-// Speed trainer: step the tempo at bar lines.
-function metBar() {
-  if (!S.met.speed.on) return;
-  const bpm = MET.trainerBpm(M.base.bpm, S.met.speed, M.bar - M.base.bar);
-  if (bpm !== S.met.bpm) { S.met.bpm = bpm; save(); syncBpm(); }
 }
 
 async function metStart() {
@@ -672,7 +664,6 @@ async function metStart() {
   M.out.connect(ctx.destination);
   Object.assign(M, { on: true, beat: 0, sub: 0, bar: 0, count: 0, queue: [], last: null, start: ctx.currentTime + 0.06 });
   M.next = M.beatStart = M.start;
-  M.base = { bpm: S.met.bpm, bar: 0 };
   metSchedule();
   M.timer = setInterval(metSchedule, 25);
   requestAnimationFrame(metFrame);
@@ -707,14 +698,13 @@ function metHit(e) {
   if (e.sub === 0) {
     M.last = { t: e.t, n: M.count++ };
     document.querySelectorAll('#metBeats .bt').forEach((b, i) => b.classList.toggle('now', i === e.beat));
-    d.classList.toggle('silent', e.silent);
     const secs = Math.max(0, Math.floor(e.t - M.start));
-    $('metStatus').textContent = `Bar ${e.bar + 1} · ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}${e.silent ? ' · silent' : ''}`;
+    $('metStatus').textContent = `Bar ${e.bar + 1} · ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
     const num = $('metNum');
-    if (num) { num.textContent = e.beat + 1; num.className = `met-num l${e.silent ? 0 : e.level}`; }
+    if (num) { num.textContent = e.beat + 1; num.className = `met-num l${e.level}`; }
   }
   const fl = $('metFlashBg');
-  if (fl && e.level && !e.silent) {
+  if (fl && e.level) {
     fl.style.background = { 3: 'var(--accent)', 2: '#93c5fd', 1: 'var(--ink)', 0.5: 'var(--ink)' }[e.level];
     fl.style.setProperty('--peak', { 3: 1, 2: 0.8, 1: 0.55, 0.5: 0.18 }[e.level]);
     fl.style.setProperty('--fade', `${Math.min(0.3, 30 / S.met.bpm)}s`);
@@ -735,7 +725,6 @@ function swing(now) {
 
 function renderLook() {
   const d = $('metDisplay');
-  d.classList.remove('silent');
   const status = `<div class="met-status" id="metStatus">${M.on ? '' : 'Press Start or Space'}</div>`;
   if (S.met.look === 'count') d.innerHTML = `<div class="met-num" id="metNum">1</div>${status}`;
   if (S.met.look === 'flash') d.innerHTML = `<div class="met-flash" id="metFlashBg"></div><div class="met-big" id="metFlashText"></div>${status}`;
@@ -765,20 +754,8 @@ function syncBpm() {
 
 function setBpm(v) {
   S.met.bpm = MET.clampBpm(v);
-  if (M.on) M.base = { bpm: S.met.bpm, bar: M.bar }; // a manual change restarts the speed trainer from here
   save();
   syncBpm();
-}
-
-const STEPS = {
-  beats: { min: 1, max: 12 }, 'speed.step': { min: 1, max: 20 }, 'speed.every': { min: 1, max: 16 },
-  'speed.target': { min: MET.MIN, max: MET.MAX }, 'gap.play': { min: 1, max: 8 }, 'gap.mute': { min: 1, max: 8 },
-};
-const getK = (k) => k.split('.').reduce((o, p) => o[p], S.met);
-function setK(k, v) {
-  const parts = k.split('.');
-  const last = parts.pop();
-  parts.reduce((o, p) => o[p], S.met)[last] = v;
 }
 
 function renderMetro() {
@@ -790,12 +767,7 @@ function renderMetro() {
   document.querySelector('[data-set="look"]').innerHTML = chips('look', LOOKS);
   const meter = MET.meterOf(S.met.accents);
   $('metMeters').innerHTML = Object.keys(MET.METERS).map((m) => `<button data-meter="${m}" class="${m === meter ? 'on' : ''}">${m}</button>`).join('');
-  document.querySelectorAll('#metro .step').forEach((el) => { el.querySelector('span').textContent = getK(el.dataset.k); });
-  for (const [id, key, rows] of [['metSpeed', 'speed', 'metSpeedRows'], ['metGap', 'gap', 'metGapRows']]) {
-    $(id).classList.toggle('on', S.met[key].on);
-    $(id).setAttribute('aria-checked', S.met[key].on);
-    $(rows).hidden = !S.met[key].on;
-  }
+  document.querySelector('#metro .step span').textContent = S.met.beats;
   renderBeats();
   renderLook();
 }
@@ -838,11 +810,8 @@ document.querySelectorAll('[data-bpm]').forEach((b) => {
 $('metro').addEventListener('click', (e) => {
   const step = e.target.closest('.step [data-d]');
   if (step) {
-    const k = step.closest('.step').dataset.k;
-    const { min, max } = STEPS[k];
-    const v = Math.min(max, Math.max(min, getK(k) + +step.dataset.d));
-    setK(k, v);
-    if (k === 'beats') S.met.accents = MET.resize(S.met.accents, v);
+    S.met.beats = Math.min(12, Math.max(1, S.met.beats + +step.dataset.d));
+    S.met.accents = MET.resize(S.met.accents, S.met.beats);
   }
   const chip = e.target.closest('[data-set] [data-v]');
   if (chip) {
@@ -854,13 +823,7 @@ $('metro').addEventListener('click', (e) => {
     S.met.accents = [...MET.METERS[meter.dataset.meter]];
     S.met.beats = S.met.accents.length;
   }
-  const sw = e.target.closest('#metSpeed, #metGap');
-  if (sw) {
-    const key = sw.id === 'metSpeed' ? 'speed' : 'gap';
-    S.met[key].on = !S.met[key].on;
-    if (M.on) M.base = { bpm: S.met.bpm, bar: M.bar };
-  }
-  if (step || chip || meter || sw) { save(); renderMetro(); }
+  if (step || chip || meter) { save(); renderMetro(); }
 });
 document.addEventListener('keydown', (e) => {
   if ($('metro').hidden || e.target.matches('input')) return;
