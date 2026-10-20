@@ -2,7 +2,7 @@
 
 Rapid-fire flashcard drills for learning to read music: treble/bass notes, chords, piano keys, note values, rhythm, key signatures and ear training. Answer by multiple choice or by tapping a piano. Missed items come back more often until they stick.
 
-A separate Metronome tab has tap tempo, per-beat accents, common meters, subdivisions (8ths, triplets, 16ths, swing), six sounds (click, beep, woodblock, cowbell, drums, piano), and three looks (count, pendulum, flash). Space starts and stops it, arrow keys change the tempo, T taps.
+A separate Metronome tab has tap tempo, per-beat accents, common meters, subdivisions (8ths, triplets, 16ths, swing), five sounds (click, beep, woodblock, drums, piano), and three looks (count, pendulum, flash). Space starts and stops it, arrow keys change the tempo, T taps.
 
 Static site, no build step. Deploys to Vercel as-is. Works offline after the first visit (`sw.js`, network-first, so updates still arrive immediately when online).
 

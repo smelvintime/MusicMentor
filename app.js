@@ -554,7 +554,7 @@ document.addEventListener('keydown', (e) => {
 // queue), so timing stays exact even when the page is busy; visuals follow that clock.
 S.met = MET.merge(S.met);
 const LOOKS = { count: 'Count', pendulum: 'Pendulum', flash: 'Flash' };
-const SOUND_NAMES = { click: 'Click', beep: 'Beep', wood: 'Woodblock', cowbell: 'Cowbell', drums: 'Drums', piano: 'Piano' };
+const SOUND_NAMES = { click: 'Click', beep: 'Beep', wood: 'Woodblock', drums: 'Drums', piano: 'Piano' };
 // Seconds of clicks queued ahead of the audio clock. Longer while the page is hidden,
 // because browsers then run the top-up timer only about once a second.
 const lookahead = () => (document.hidden ? 1.5 : 0.2);
@@ -618,21 +618,6 @@ const SOUNDS = {
     tone(c, t, 'triangle', f, VOL[l] * 0.9, 0.07, f * 0.85);
     hiss(c, t, 'bandpass', f * 2, 3, VOL[l] * 0.4, 0.015);
   },
-  cowbell: (c, t, l) => {
-    const k = l >= 2 ? 1 : 0.84;
-    const fl = c.createBiquadFilter();
-    fl.type = 'bandpass';
-    fl.frequency.value = 900 * k;
-    fl.Q.value = 2;
-    fl.connect(env(c, t, VOL[l] * 0.55, l === 0.5 ? 0.1 : 0.3)); // two square waves: kept low so accents don't clip
-    [587, 845].forEach((f) => {
-      const o = Object.assign(c.createOscillator(), { type: 'square' });
-      o.frequency.value = f * k;
-      o.connect(fl);
-      o.start(t);
-      o.stop(t + 0.35);
-    });
-  },
   drums: (c, t, l) => {
     if (l === 3) return tone(c, t, 'sine', 150, 1, 0.3, 45); // kick
     if (l === 2) { // snare
@@ -655,6 +640,8 @@ const SOUNDS = {
     src.stop(t + 0.7);
   },
 };
+
+if (!SOUNDS[S.met.sound]) S.met.sound = 'click'; // a sound that was removed
 
 function metSchedule() {
   const ctx = ac;
