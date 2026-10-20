@@ -27,6 +27,8 @@ const SAMPLE_KEYS = Object.keys(SAMPLES).map(Number);
 const buffers = {};
 let ac;
 function audio() {
+  // iPhone: play through the ringer/mute switch like a music app (Safari 16.4+).
+  if (navigator.audioSession) navigator.audioSession.type = 'playback';
   ac ??= new (window.AudioContext || window.webkitAudioContext)();
   ac.resume();
   return ac;
@@ -553,11 +555,13 @@ document.addEventListener('keydown', (e) => {
 S.met = MET.merge(S.met);
 const LOOKS = { count: 'Count', pendulum: 'Pendulum', flash: 'Flash' };
 const SOUND_NAMES = { click: 'Click', beep: 'Beep', wood: 'Woodblock', cowbell: 'Cowbell', drums: 'Drums', piano: 'Piano' };
-const LOOKAHEAD = 0.12; // seconds of clicks queued ahead of the audio clock
+// Seconds of clicks queued ahead of the audio clock. Longer while the page is hidden,
+// because browsers then run the top-up timer only about once a second.
+const lookahead = () => (document.hidden ? 1.5 : 0.2);
 const M = { on: false, timer: 0, out: null, next: 0, beatStart: 0, beat: 0, sub: 0, bar: 0, count: 0, queue: [], last: null, start: 0, taps: [], lock: null };
 
 // Synthesized sounds: level 3 strong, 2 medium, 1 normal, 0.5 subdivision.
-const VOL = { 3: 1, 2: 0.75, 1: 0.55, 0.5: 0.3 };
+const VOL = { 3: 1, 2: 0.75, 1: 0.55, 0.5: 0.3 }; // every sound peaks near 0.8 on a strong beat
 let noiseBuf;
 function noise(ctx) {
   if (!noiseBuf) {
@@ -595,9 +599,20 @@ function hiss(ctx, t, type, f, q, peak, decay) {
 }
 const PIANO_CLICK = { 3: 84, 2: 79, 1: 72, 0.5: 67 }; // C6, G5, C5, G4
 const pianoBuf = {};
+// Where the note really starts in a sample (the recordings open with 10–16ms of silence) and how loud it is.
+function prepPiano(buf, base) {
+  const chans = Array.from({ length: buf.numberOfChannels }, (_, c) => buf.getChannelData(c));
+  let peak = 0;
+  chans.forEach((d) => { for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i])); });
+  const onset = Math.min(...chans.map((d) => d.findIndex((x) => Math.abs(x) > peak * 0.05)).filter((i) => i >= 0));
+  return { buf, base, skip: Math.max(0, onset / buf.sampleRate - 0.001), norm: 0.8 / (peak || 1) };
+}
 const SOUNDS = {
-  click: (c, t, l) => hiss(c, t, 'bandpass', { 3: 5200, 2: 4200, 1: 3300, 0.5: 2600 }[l], 1.2, VOL[l] * 1.6, 0.03),
-  beep: (c, t, l) => tone(c, t, 'sine', { 3: 1760, 2: 1320, 1: 880, 0.5: 660 }[l], VOL[l] * 0.6, 0.08),
+  click: (c, t, l) => { // digital tick: a short high blip plus a sharp transient
+    tone(c, t, 'sine', { 3: 2600, 2: 2200, 1: 1800, 0.5: 1500 }[l], VOL[l] * 0.7, 0.03);
+    hiss(c, t, 'highpass', 3000, 0.7, VOL[l] * 0.5, 0.006);
+  },
+  beep: (c, t, l) => tone(c, t, 'sine', { 3: 1760, 2: 1320, 1: 880, 0.5: 660 }[l], VOL[l] * 0.9, 0.08),
   wood: (c, t, l) => {
     const f = { 3: 1450, 2: 1200, 1: 950, 0.5: 800 }[l];
     tone(c, t, 'triangle', f, VOL[l] * 0.9, 0.07, f * 0.85);
@@ -609,7 +624,7 @@ const SOUNDS = {
     fl.type = 'bandpass';
     fl.frequency.value = 900 * k;
     fl.Q.value = 2;
-    fl.connect(env(c, t, VOL[l] * 0.9, l === 0.5 ? 0.1 : 0.3));
+    fl.connect(env(c, t, VOL[l] * 0.55, l === 0.5 ? 0.1 : 0.3)); // two square waves: kept low so accents don't clip
     [587, 845].forEach((f) => {
       const o = Object.assign(c.createOscillator(), { type: 'square' });
       o.frequency.value = f * k;
@@ -621,8 +636,8 @@ const SOUNDS = {
   drums: (c, t, l) => {
     if (l === 3) return tone(c, t, 'sine', 150, 1, 0.3, 45); // kick
     if (l === 2) { // snare
-      hiss(c, t, 'highpass', 1500, 0.7, 0.6, 0.16);
-      return tone(c, t, 'triangle', 190, 0.5, 0.08);
+      hiss(c, t, 'highpass', 1500, 0.7, 0.5, 0.16);
+      return tone(c, t, 'triangle', 190, 0.35, 0.08);
     }
     hiss(c, t, 'highpass', 7000, 0.8, l === 1 ? 0.5 : 0.25, l === 1 ? 0.05 : 0.03); // closed hi-hat
   },
@@ -630,21 +645,30 @@ const SOUNDS = {
     const p = pianoBuf[PIANO_CLICK[l]];
     if (!p) return SOUNDS.beep(c, t, l); // samples still loading
     const src = Object.assign(c.createBufferSource(), { buffer: p.buf });
-    src.playbackRate.value = 2 ** ((PIANO_CLICK[l] - p.base) / 12);
-    src.connect(env(c, t, VOL[l] * 0.9, 0.5));
-    src.start(t);
-    src.stop(t + 0.6);
+    const rate = 2 ** ((PIANO_CLICK[l] - p.base) / 12);
+    src.playbackRate.value = rate;
+    const g = c.createGain(); // plain gain: the attack is the piano's own
+    g.gain.setValueAtTime(VOL[l] * p.norm, t);
+    g.gain.setTargetAtTime(0, t + 0.25, 0.08);
+    src.connect(g).connect(M.out);
+    src.start(t, p.skip); // skip the silence at the start of the recording, or every click lands late
+    src.stop(t + 0.7);
   },
 };
 
 function metSchedule() {
   const ctx = ac;
-  while (M.next < ctx.currentTime + LOOKAHEAD) {
+  const ahead = lookahead();
+  while (M.next < ctx.currentTime + ahead) {
     const { at } = MET.SUBDIVISIONS[S.met.sub];
     const level = M.sub === 0 ? S.met.accents[M.beat] ?? 1 : 0.5;
-    if (level) SOUNDS[S.met.sound](ctx, M.next, level);
-    M.queue.push({ t: M.next, beat: M.beat, sub: M.sub, level, bar: M.bar });
-    if (M.queue.length > 64) M.queue.shift(); // hidden tab: no frames drain it
+    // Clicks whose time already passed (the phone slept, the page froze) are skipped,
+    // not played all at once in a burst. The count carries on as if they happened.
+    if (M.next >= ctx.currentTime) {
+      if (level) SOUNDS[S.met.sound](ctx, M.next, level);
+      M.queue.push({ t: M.next, beat: M.beat, sub: M.sub, level, bar: M.bar });
+      if (M.queue.length > 64) M.queue.shift(); // hidden tab: no frames drain it
+    }
     M.sub++;
     if (M.sub >= at.length) {
       M.sub = 0;
@@ -658,17 +682,21 @@ function metSchedule() {
 
 async function metStart() {
   const ctx = audio();
-  if (S.met.sound === 'piano') Object.values(PIANO_CLICK).forEach((m) => load(nearest(m)).then((buf) => { pianoBuf[m] = { buf, base: nearest(m) }; }).catch(() => {}));
+  if (S.met.sound === 'piano') Object.values(PIANO_CLICK).forEach((m) => load(nearest(m)).then((buf) => { pianoBuf[m] ??= prepPiano(buf, nearest(m)); }).catch(() => {}));
   M.out = ctx.createGain();
   M.out.gain.value = 0.9;
   M.out.connect(ctx.destination);
-  Object.assign(M, { on: true, beat: 0, sub: 0, bar: 0, count: 0, queue: [], last: null, start: ctx.currentTime + 0.06 });
+  M.on = true;
+  $('metPlay').textContent = 'Stop';
+  $('metPlay').classList.add('on');
+  // A phone's audio can take a moment to wake. Starting the count before it runs bunches the first clicks.
+  await Promise.race([ctx.resume(), new Promise((r) => { setTimeout(r, 500); })]);
+  if (!M.on) return; // stopped while waiting
+  Object.assign(M, { beat: 0, sub: 0, bar: 0, count: 0, queue: [], last: null, start: ctx.currentTime + 0.1 });
   M.next = M.beatStart = M.start;
   metSchedule();
   M.timer = setInterval(metSchedule, 25);
   requestAnimationFrame(metFrame);
-  $('metPlay').textContent = 'Stop';
-  $('metPlay').classList.add('on');
   try { M.lock = await navigator.wakeLock?.request('screen'); } catch { /* screen may still sleep */ }
 }
 
@@ -773,6 +801,11 @@ function renderMetro() {
 }
 
 // ---- metronome events ----
+// Back from the background: the phone may have paused audio (iOS calls this "interrupted").
+document.addEventListener('visibilitychange', () => {
+  if (M.on && !document.hidden) ac.resume();
+  if (M.on) metSchedule(); // switch the queue length right away
+});
 $('nav').onclick = (e) => {
   const t = e.target.closest('[data-tab]')?.dataset.tab;
   if (!t) return;
