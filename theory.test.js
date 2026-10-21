@@ -233,4 +233,38 @@ for (const q of many('count', true).filter((x) => x.ask.startsWith('Which time s
   assert.strictEqual(eighths, +q.correct[0] * 2, `bar doesn't fill ${q.correct}`);
 }
 
+// ---------- Guitar & ukulele ----------
+// Every chord shape sounds exactly its chord's notes, in standard tuning.
+for (const [set, shapes] of Object.entries(MM.SHAPES)) {
+  const inst = set.replace('Hard', '');
+  for (const [label, shape] of Object.entries(shapes)) {
+    const chord = MM.chordPool().find((c) => c.label === label);
+    const got = [...new Set(MM.sounding(inst, MM.specOf(shape)).map((m) => m % 12))].sort((a, b) => a - b).join();
+    assert.strictEqual(got, MM.keySet(chord.notes), `${inst} ${label} (${shape}) sounds wrong`);
+  }
+}
+assert.deepStrictEqual(MM.FRETTED.guitar.strings, [40, 45, 50, 55, 59, 64], 'guitar is E A D G B E');
+assert.deepStrictEqual(MM.FRETTED.ukulele.strings, [67, 60, 64, 69], 'ukulele is G C E A, high G');
+for (const inst of ['guitar', 'ukulele']) {
+  for (const hard of [false, true]) {
+    for (const q of many(`${inst}Notes`, hard, 800)) {
+      if (q.prompt.type === 'fret') {
+        // The dot's note is the answer.
+        const [m] = MM.sounding(inst, q.prompt.spec);
+        assert.strictEqual(q.correct, MM.pcName(m), `${inst} dot ${q.prompt.spec}`);
+        assert.ok(hard || MM.fretsOf(q.prompt.spec).every((f) => f === null || f <= 4), 'normal mode stays in the first 4 frets');
+      } else {
+        // Picture choices: every option is a different note, and the answer is the asked note.
+        const pcs = q.choices.map((c) => MM.sounding(inst, c)[0] % 12);
+        assert.strictEqual(new Set(pcs).size, q.choices.length, `${inst} two frets with the same note: ${q.choices}`);
+        assert.strictEqual(MM.pcName(MM.sounding(inst, q.correct)[0]), q.prompt.text);
+      }
+    }
+    for (const q of many(`${inst}Chords`, hard, 400)) {
+      if (q.art) q.choices.forEach((c) => assert.ok(q.label(c), `${inst} unnamed shape ${c}`));
+    }
+  }
+}
+assert.ok(many('guitarChords', true).some((q) => q.prompt.spec === '1,3,3,2,1,1' || q.choices.includes('1,3,3,2,1,1')), 'hard guitar has the F barre chord');
+
 console.log('theory ok');

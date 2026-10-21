@@ -630,6 +630,135 @@ const MM = (() => {
     };
   }
 
+  // ---------- Guitar & ukulele ----------
+  // Standard tuning, strings left to right as on a chord chart: guitar low E to high e,
+  // ukulele G C E A (the G is tuned high, above the C).
+  const FRETTED = {
+    guitar: { name: 'Guitar', strings: [40, 45, 50, 55, 59, 64] },
+    ukulele: { name: 'Ukulele', strings: [67, 60, 64, 69] },
+  };
+  // Chord shapes, one fret per string (x = not played). Hard mode adds the barre chords.
+  const SHAPES = {
+    guitar: { C: 'x32010', A: 'x02220', G: '320003', E: '022100', D: 'xx0232', Am: 'x02210', Em: '022000', Dm: 'xx0231' },
+    guitarHard: { F: '133211', B: 'x24442', 'B♭': 'x13331', Bm: 'x24432', Cm: 'x35543', Gm: '355333', Fm: '133111', 'F♯m': '244222', 'C♯m': 'x46654' },
+    ukulele: { C: '0003', Am: '2000', F: '2010', G: '0232', Em: '0432', Dm: '2210', D: '2220', A: '2100' },
+    ukuleleHard: { E: '4442', Bm: '4222', 'B♭': '3211', Cm: '0333', Fm: '1013', 'F♯m': '2120', Gm: '0231', 'E♭': '0331' },
+  };
+  // A diagram is drawn from a spec, one comma-separated token per string:
+  // a fret number (0 = open), "x" = not played, "-" = nothing marked.
+  const specOf = (shape) => shape.split('').join(',');
+  const fretsOf = (spec) => spec.split(',').map((t) => (/^\d+$/.test(t) ? +t : null));
+  const sounding = (inst, spec) => fretsOf(spec).flatMap((f, i) => (f === null ? [] : [FRETTED[inst].strings[i] + f]));
+  const STRUM = 0.035; // seconds between strings, low to high
+
+  const shapePool = (inst, hard) =>
+    Object.entries({ ...SHAPES[inst], ...(hard ? SHAPES[`${inst}Hard`] : {}) })
+      .map(([label, shape]) => ({ id: `${inst}:${label}`, inst, label, spec: specOf(shape), notes: chordPool().find((c) => c.label === label).notes }));
+
+  function fretChordQuestion(it, hard) {
+    const pool = shapePool(it.inst, hard);
+    const rootOf = (l) => l.replace(/m$/, '');
+    // Same root first (A next to Am), so you have to read the shape, not guess from the letter.
+    const ordered = [...shuffle(pool.filter((c) => rootOf(c.label) === rootOf(it.label))), ...shuffle(pool)];
+    const hint = `${it.label} = ${it.notes.map(name).join(' ')}. ${QUAL[rootOf(it.label) === it.label ? 'maj' : 'min'].label}.`;
+    const play = sounding(it.inst, it.spec);
+    if (Math.random() < 0.5) {
+      return {
+        prompt: { type: 'fret', spec: it.spec },
+        ask: 'Which chord is this?',
+        choices: pickFirst(it.label, ordered.map((c) => c.label)),
+        correct: it.label,
+        hint,
+        why: (given) => chordWhy(it, given),
+        play, gap: STRUM,
+      };
+    }
+    const labelOf = Object.fromEntries(pool.map((c) => [c.spec, c.label]));
+    return {
+      prompt: { type: 'text', text: it.label },
+      ask: 'Which shape is this chord?',
+      choices: pickFirst(it.spec, ordered.map((c) => c.spec)),
+      art: 'fret', // the choices are diagrams
+      label: (spec) => labelOf[spec], // how a choice is named in the miss history
+      correct: it.spec,
+      hint,
+      why: (given) => `You picked the ${labelOf[given]} shape.`,
+      play, gap: STRUM,
+    };
+  }
+
+  // One note per string and fret. Normal mode stays in the first 4 frets.
+  const fretNotePool = (inst, hard) =>
+    FRETTED[inst].strings.flatMap((open, s) => Array.from({ length: hard ? 13 : 5 }, (_, f) => ({
+      id: `${inst}n:${s}:${f}`, inst, s, f, m: open + f, label: `${pcName(open + f)} (string ${s + 1}, fret ${f})`,
+    })));
+  const dotSpec = (inst, s, f) => FRETTED[inst].strings.map((_, i) => (i === s ? f : '-')).join(',');
+  const sharpName = (m) => pcName(m).split('/')[0];
+  const flatName = (m) => pcName(m).split('/').at(-1);
+
+  // Count from the nearer of the open string and fret 12 (the open note an octave up), never through both.
+  function fretNoteHint(open, f) {
+    const up = f <= 6;
+    const from = up ? 0 : 12;
+    const seq = Array.from({ length: Math.abs(f - from) + 1 }, (_, i) => (up ? sharpName(open + i) : flatName(open + 12 - i)));
+    const lead = up ? `Open string = ${sharpName(open)}` : `Fret 12 = ${sharpName(open)} again, an octave up`;
+    return f === 0 || f === 12 ? `${lead}.` : `${lead}. ${up ? 'Up' : 'Down'} ${Math.abs(f - from)}: ${seq.join(' → ')}.`;
+  }
+
+  function fretNoteQuestion(it, hard) {
+    const open = FRETTED[it.inst].strings[it.s];
+    const nm = pcName(it.m);
+    const hint = `String ${it.s + 1} (${sharpName(open)}), fret ${it.f}. ${fretNoteHint(open, it.f)}`;
+    if (Math.random() < 0.5) {
+      return {
+        prompt: { type: 'fret', spec: dotSpec(it.inst, it.s, it.f) },
+        ask: 'Name this note',
+        choices: isBlack(it.m) ? Object.values(BLACK_NAMES) : LETTERS.split(''),
+        correct: nm,
+        hint,
+        play: [it.m],
+      };
+    }
+    // The other way round: where is this note on that string? Each option is a different note.
+    const frets = Array.from({ length: hard ? 13 : 5 }, (_, f) => f);
+    const byPc = (spec) => (open + fretsOf(spec)[it.s]) % 12;
+    const spec = dotSpec(it.inst, it.s, it.f);
+    return {
+      prompt: { type: 'text', text: nm },
+      ask: `Where is it on string ${it.s + 1} (${sharpName(open)})?`,
+      choices: pickRandom(spec, frets.map((f) => dotSpec(it.inst, it.s, f)), 4, byPc),
+      art: 'fret',
+      label: (sp) => `fret ${fretsOf(sp)[it.s]}`,
+      correct: spec,
+      hint,
+      why: (given) => `You picked fret ${fretsOf(given)[it.s]}: that's ${pcName(open + fretsOf(given)[it.s])}.`,
+      play: [it.m],
+    };
+  }
+
+  const fretDecks = (inst) => ({
+    [`${inst}Chords`]: {
+      title: `${FRETTED[inst].name} chords`, sub: 'Shape ↔ chord name',
+      pool: (hard) => shapePool(inst, hard), make: fretChordQuestion,
+      learn: [
+        'Each line running along the neck is a string. Upright (the usual chord chart) the lowest string is on the left; sideways (the Fretboard setting) it is at the bottom. The thick line is the nut, the end of the neck.',
+        'A red dot is where a finger presses, just behind that fret. O = play the string open. × = don\'t play it.',
+        'Major and minor shapes on the same root often differ by one finger: compare A and Am, E and Em, D and Dm.',
+        'Hard mode adds barre chords: one finger lies flat across several strings. The number beside the chart is the fret it starts at.',
+      ],
+    },
+    [`${inst}Notes`]: {
+      title: `${FRETTED[inst].name} notes`, sub: 'Fretboard ↔ note name',
+      pool: (hard) => fretNotePool(inst, hard), make: fretNoteQuestion,
+      learn: [
+        inst === 'guitar' ? 'Open strings, low to high: E A D G B E — "Eddie Ate Dynamite, Good Bye Eddie".' : 'Open strings, left to right: G C E A — "Good Cooks Eat Apples". The G is tuned high.',
+        'Each fret is one half step. Between B–C and E–F there is no sharp, so those are one fret apart.',
+        'Fret 12 is the open note again, an octave higher.',
+        'Normal mode stays in the first 4 frets. Hard mode goes up to fret 12.',
+      ],
+    },
+  });
+
   // ---------- Decks ----------
   const DECKS = {
     treble: {
@@ -768,7 +897,9 @@ const MM = (() => {
     },
   };
 
-  return { DECKS, midi, isBlack, pcName, triad, note, staffHint, chordPool, keySet, fillMeasure, EIGHTHS };
+  Object.assign(DECKS, fretDecks('guitar'), fretDecks('ukulele'));
+
+  return { DECKS, FRETTED, SHAPES, sounding, specOf, fretsOf, midi, isBlack, pcName, triad, note, staffHint, chordPool, keySet, fillMeasure, EIGHTHS };
 })();
 
 if (typeof module !== 'undefined') module.exports = MM;

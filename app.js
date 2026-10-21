@@ -13,7 +13,7 @@ const ICON = {
 
 // ---------- persistence ----------
 const S = (() => {
-  const base = { w: {}, s: {}, len: 20, sound: true, mode: {}, pick: [], hard: false };
+  const base = { w: {}, s: {}, len: 20, sound: true, mode: {}, pick: [], hard: false, inst: 'piano', fretH: false };
   try { return { ...base, ...JSON.parse(localStorage.getItem('mm')) }; } catch { return base; }
 })();
 const save = () => { try { localStorage.setItem('mm', JSON.stringify(S)); } catch { /* private mode: progress just won't persist */ } };
@@ -57,8 +57,10 @@ function silence() {
   voices = [];
 }
 
-// gap > 0 plays the notes one after another (melodic interval) instead of together.
+// gap > 0 plays the notes one after another instead of together. A long gap is a melodic
+// interval (each note hands off to the next); a short one is a strum, where every string rings on.
 async function play(midis, force, gap = 0) {
+  const melodic = gap > 0.1;
   silence();
   if (!midis || (!S.sound && !force)) return;
   const gen = playGen;
@@ -71,11 +73,11 @@ async function play(midis, force, gap = 0) {
       const src = ctx.createBufferSource();
       const g = ctx.createGain();
       const at = t + i * gap;
-      const handOff = gap && i < notes.length - 1; // fade as the next note starts
+      const handOff = melodic && i < notes.length - 1; // fade as the next note starts
       const end = handOff ? at + gap : at + 1.5;
       src.buffer = buf;
       src.playbackRate.value = 2 ** ((m - base) / 12);
-      g.gain.setValueAtTime(gap ? 0.8 : 0.8 / Math.sqrt(midis.length), at);
+      g.gain.setValueAtTime(melodic ? 0.8 : 0.8 / Math.sqrt(midis.length), at);
       g.gain.setTargetAtTime(0, end, handOff ? 0.08 : 0.3);
       src.connect(g).connect(ctx.destination);
       src.start(at);
@@ -148,6 +150,47 @@ function drawPiano(el, { lo, hi }, marks = {}) {
     div.append(k);
   }
   el.replaceChildren(div);
+}
+
+// Chord chart, 5 frets from the nut, red dots where fingers press. Vertical (the usual chord chart):
+// strings top to bottom, lowest on the left. Horizontal (setting, like tab): nut on the left, lowest
+// string at the bottom. Shapes higher up the neck start lower and say which fret they start at.
+function fretSvg(spec) {
+  const frets = MM.fretsOf(spec);
+  const marks = spec.split(',');
+  const n = frets.length;
+  const pressed = frets.filter((f) => f > 0);
+  const base = Math.max(...pressed, 0) > 5 ? Math.min(...pressed) : 1;
+  const flat = S.fretH;
+  const gap = 22; // between strings
+  const row = 26; // between frets
+  const pad = 30;
+  const neck = 5 * row;
+  // p(s, d): string s (0 = lowest) at distance d along the neck from the nut.
+  const p = flat ? (s, d) => [pad + d, 12 + (n - 1 - s) * gap] : (s, d) => [pad + s * gap, pad + d];
+  const w = flat ? pad + neck + 10 : pad + (n - 1) * gap + 16;
+  const h = flat ? 12 + (n - 1) * gap + 26 : pad + neck + 8;
+  const line = ([x1, y1], [x2, y2], width) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke-width="${width}"/>`;
+  let svg = `<svg viewBox="0 0 ${w} ${h}" aria-hidden="true"><g stroke="currentColor" stroke-linecap="round">`;
+  for (let r = 0; r <= 5; r++) svg += line(p(0, r * row), p(n - 1, r * row), r === 0 && base === 1 ? 5 : 1.5);
+  for (let s = 0; s < n; s++) svg += line(p(s, 0), p(s, neck), 1.5);
+  svg += '</g>';
+  if (base > 1) {
+    const [x, y] = p(0, row * 0.5);
+    svg += flat
+      ? `<text x="${x}" y="${y + 22}" text-anchor="middle" font-size="13" fill="currentColor">${base}fr</text>`
+      : `<text x="${x - 8}" y="${y + 5}" text-anchor="end" font-size="13" fill="currentColor">${base}fr</text>`;
+  }
+  marks.forEach((t, s) => {
+    const [mx, my] = p(s, -13); // open / muted marks sit just outside the nut
+    if (t === 'x') svg += `<text x="${mx}" y="${my + 5}" text-anchor="middle" font-size="15" fill="currentColor">×</text>`;
+    else if (t === '0') svg += `<circle cx="${mx}" cy="${my}" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/>`;
+    else if (frets[s] > 0) {
+      const [cx, cy] = p(s, (frets[s] - base + 0.5) * row);
+      svg += `<circle cx="${cx}" cy="${cy}" r="8.5" fill="var(--hl)"/>`;
+    }
+  });
+  return `<div class="fret${flat ? ' h' : ''}">${svg}</svg></div>`;
 }
 
 // ---------- quiz state ----------
@@ -234,19 +277,23 @@ function drawPrompt(el, p, deck) {
   if (p.type === 'piano') drawPiano(el, deck.piano, Object.fromEntries(p.highlight.map((m) => [m, 'hl'])));
   if (p.type === 'text') el.innerHTML = `<div class="bigtext">${p.text}</div>`;
   if (p.type === 'ear') el.innerHTML = `<div class="ear">${ICON.speaker}</div>`;
+  if (p.type === 'fret') el.innerHTML = fretSvg(p.spec);
 }
+
+// A choice's answer value: its text, or for picture choices (chord charts) the spec it was drawn from.
+const valueOf = (b) => b.dataset.v ?? b.textContent;
 
 function renderAnswer() {
   const a = $('answer');
   if (mode === 'keys') return drawPiano(a, DECKS[q.deck].piano);
   const grid = document.createElement('div');
-  const row = q.choices.length >= 5; // note-name rows (A–G, or all ♯ / all ♭)
-  grid.className = `choices${row ? ' letters' : ''}${q.choices.length === 3 ? ' three' : ''}`;
+  const row = !q.art && q.choices.length >= 5; // note-name rows (A–G, or all ♯ / all ♭)
+  grid.className = `choices${row ? ' letters' : ''}${q.choices.length === 3 ? ' three' : ''}${q.art ? ' art' : ''}`;
   if (row) grid.style.gridTemplateColumns = `repeat(${q.choices.length}, 1fr)`;
   q.choices.forEach((c) => {
     const b = document.createElement('button');
     b.className = `choice${row && c.length > 2 ? ' long' : ''}`;
-    b.textContent = c;
+    if (q.art) { b.dataset.v = c; b.innerHTML = fretSvg(c); b.setAttribute('aria-label', q.label(c)); } else b.textContent = c;
     grid.append(b);
   });
   a.replaceChildren(grid);
@@ -256,7 +303,7 @@ function choose(c, btn) {
   if (locked) return;
   const ok = c === q.correct;
   btn.classList.add(ok ? 'ok' : 'bad');
-  if (!ok) [...$('answer').querySelectorAll('.choice')].find((b) => b.textContent === q.correct).classList.add('ok');
+  if (!ok) [...$('answer').querySelectorAll('.choice')].find((b) => valueOf(b) === q.correct).classList.add('ok');
   settle(ok, c);
 }
 
@@ -286,7 +333,7 @@ $('answer').addEventListener('pointerup', () => {
   setPressed(null);
   if (!t || locked) return;
   if (t.dataset.m) tapKey(+t.dataset.m, t);
-  else choose(t.textContent, t);
+  else choose(valueOf(t), t);
 });
 $('answer').addEventListener('pointercancel', () => { pressing = false; setPressed(null); });
 
@@ -380,8 +427,9 @@ function announce(num) {
 const HISTORY_MAX = 50; // newest first; capped so infinite mode can't grow it forever
 let history = [];
 function logMiss(given, hint) {
-  const correct = mode === 'keys' ? q.keys.map(MM.pcName).join(' ') : q.correct;
-  history = [{ deck: q.deck, prompt: q.prompt, ask: q.ask, given, correct, hint, play: q.play, gap: q.gap }, ...history].slice(0, HISTORY_MAX);
+  const named = (c) => (q.art ? q.label(c) : c); // picture choices are listed by name
+  const correct = mode === 'keys' ? q.keys.map(MM.pcName).join(' ') : named(q.correct);
+  history = [{ deck: q.deck, prompt: q.prompt, ask: q.ask, given: named(given), correct, hint, play: q.play, gap: q.gap }, ...history].slice(0, HISTORY_MAX);
 }
 
 function openHistory() {
@@ -444,12 +492,24 @@ function openLearn(id) {
 }
 
 // ---------- home ----------
-// Ticked decks are what "Mix" draws from; none ticked = every deck.
-const mixDecks = () => (S.pick.length ? S.pick : Object.keys(DECKS));
+// Ticked decks are what "Mix" draws from; none ticked = every deck. Both only for the chosen instrument.
+const RHYTHM = ['Rhythm & theory', ['values', 'count', 'keysig']];
+const INSTRUMENTS = {
+  piano: {
+    label: 'Piano',
+    sections: [['Read music', ['treble', 'bass', 'grand', 'chords']], ['Keyboard', ['pnotes', 'pchords']], RHYTHM, ['Listen', ['ear', 'perfect', 'relative']]],
+  },
+  guitar: { label: 'Guitar', sections: [['Guitar', ['guitarChords', 'guitarNotes']], RHYTHM] },
+  ukulele: { label: 'Ukulele', sections: [['Ukulele', ['ukuleleChords', 'ukuleleNotes']], RHYTHM] },
+};
+if (!INSTRUMENTS[S.inst]) S.inst = 'piano';
+const instDecks = () => INSTRUMENTS[S.inst].sections.flatMap(([, ids]) => ids);
+const picked = () => S.pick.filter((id) => instDecks().includes(id));
+const mixDecks = () => (picked().length ? picked() : instDecks());
 function syncMix() {
-  const names = S.pick.map((id) => DECKS[id].title);
+  const names = picked().map((id) => DECKS[id].title);
   $('mixTitle').textContent = names.length ? `Mix ${names.length} deck${names.length > 1 ? 's' : ''}` : 'Mix everything';
-  $('mixSub').textContent = names.length ? names.join(' · ') : 'Every deck, shuffled — or tick decks below';
+  $('mixSub').textContent = names.length ? names.join(' · ') : `Every ${INSTRUMENTS[S.inst].label.toLowerCase()} deck, shuffled — or tick decks below`;
 }
 function togglePick(id, el) {
   S.pick = S.pick.includes(id) ? S.pick.filter((x) => x !== id) : [...S.pick, id];
@@ -458,12 +518,6 @@ function togglePick(id, el) {
   el.setAttribute('aria-checked', S.pick.includes(id));
   syncMix();
 }
-const SECTIONS = [
-  ['Read music', ['treble', 'bass', 'grand', 'chords']],
-  ['Keyboard', ['pnotes', 'pchords']],
-  ['Rhythm & theory', ['values', 'count', 'keysig']],
-  ['Listen', ['ear', 'perfect', 'relative']],
-];
 const note = (keys, dur = 'w') => ({ keys, dur });
 const PREVIEW = {
   treble: { clef: 'treble', notes: [note(['e/5'])] },
@@ -478,14 +532,46 @@ const PREVIEW = {
   ear: { type: 'ear' },
   perfect: { type: 'ear' },
   relative: { type: 'piano', highlight: [60, 67] },
+  guitarChords: { type: 'fret', spec: 'x,3,2,0,1,0' },
+  guitarNotes: { type: 'fret', spec: '-,-,2,-,-,-' },
+  ukuleleChords: { type: 'fret', spec: '0,0,0,3' },
+  ukuleleNotes: { type: 'fret', spec: '-,2,-,-' },
 };
+
+// ---------- custom layout ----------
+// Saved per instrument: { sections: [names], tiles: { name: [deck ids] } }. Tiles move only within
+// their section. Decks added later go to the end of their section; ones no longer there are skipped.
+const ordered = (saved = [], actual) => [...saved.filter((x) => actual.includes(x)), ...actual.filter((x) => !saved.includes(x))];
+function layout() {
+  const mine = S.layout?.[S.inst] || {};
+  const ids = Object.fromEntries(INSTRUMENTS[S.inst].sections);
+  return ordered(mine.sections, Object.keys(ids)).map((nm) => [nm, ordered(mine.tiles?.[nm], ids[nm])]);
+}
+function saveLayout() { // read the order back off the screen
+  const secs = [...document.querySelectorAll('#decks [data-section]')];
+  const tiles = Object.fromEntries(secs.map((el) => [el.dataset.section, [...el.querySelectorAll('[data-deck]')].map((b) => b.dataset.deck)]));
+  S.layout = { ...S.layout, [S.inst]: { sections: secs.map((el) => el.dataset.section), tiles } };
+  save();
+}
+let editing = false;
+function setEditing(on) {
+  editing = on;
+  $('home').classList.toggle('editing', on);
+  $('editBar').hidden = !on;
+  $('gear').setAttribute('aria-pressed', on);
+  $('gear').setAttribute('aria-label', on ? 'Done arranging' : 'Arrange tiles');
+}
 
 function renderHome() {
   document.querySelectorAll('[data-len]').forEach((b) => b.classList.toggle('on', +b.dataset.len === S.len));
+  document.querySelectorAll('[data-inst]').forEach((b) => b.classList.toggle('on', b.dataset.inst === S.inst));
+  $('fretRow').hidden = S.inst === 'piano';
+  document.querySelectorAll('[data-fret]').forEach((b) => b.classList.toggle('on', (b.dataset.fret === 'h') === !!S.fretH));
   $('hard').classList.toggle('on', S.hard);
   $('hard').setAttribute('aria-checked', S.hard);
-  $('decks').innerHTML = SECTIONS.map(([name, ids]) => `
-    <div class="section">${name}</div>
+  $('decks').innerHTML = layout().map(([name, ids]) => `
+    <div data-section="${name}">
+    <div class="section">${name}<span class="mv-pair"><button class="mv" data-move="-1" aria-label="Move ${name} up">↑</button><button class="mv" data-move="1" aria-label="Move ${name} down">↓</button></span></div>
     <div class="decks">${ids.map((id) => `
       <button class="deck" data-deck="${id}">
         <span class="pick${S.pick.includes(id) ? ' on' : ''}" data-pick="${id}" role="checkbox" aria-checked="${S.pick.includes(id)}" aria-label="Add ${DECKS[id].title} to mix">${ICON.check}</span>
@@ -493,7 +579,7 @@ function renderHome() {
         <b>${DECKS[id].title}</b>
         <div class="muted">${DECKS[id].sub}</div>
       </button>`).join('')}
-    </div>`).join('');
+    </div></div>`).join('');
   document.querySelectorAll('#decks .pv').forEach((el) => {
     const id = el.closest('[data-deck]').dataset.deck;
     const p = { type: 'staff', ...PREVIEW[id] };
@@ -515,7 +601,60 @@ function renderHome() {
 
 // ---------- events ----------
 $('hard').onclick = () => { S.hard = !S.hard; save(); renderHome(); };
+document.querySelectorAll('[data-inst]').forEach((b) => { b.onclick = () => { S.inst = b.dataset.inst; save(); renderHome(); }; });
+document.querySelectorAll('[data-fret]').forEach((b) => { b.onclick = () => { S.fretH = b.dataset.fret === 'h'; save(); renderHome(); }; });
+$('gear').onclick = () => setEditing(!editing);
+$('editDone').onclick = () => setEditing(false);
+$('resetLayout').onclick = () => { delete S.layout?.[S.inst]; save(); renderHome(); };
+
+// Arranging: drag a tile over another in its section and they swap places as you go.
+// Arrow keys move a focused tile; the ↑ ↓ buttons move a whole section.
+let dragged = null;
+$('decks').addEventListener('pointerdown', (e) => {
+  const tile = e.target.closest('.deck');
+  if (!editing || !tile) return;
+  dragged = tile;
+  tile.classList.add('dragging');
+  tile.setPointerCapture(e.pointerId);
+});
+$('decks').addEventListener('pointermove', (e) => {
+  if (!dragged) return;
+  const over = document.elementFromPoint(e.clientX, e.clientY)?.closest('.deck');
+  if (!over || over === dragged || over.parentNode !== dragged.parentNode) return;
+  const tiles = [...dragged.parentNode.children];
+  dragged.parentNode.insertBefore(dragged, tiles.indexOf(over) > tiles.indexOf(dragged) ? over.nextSibling : over);
+});
+const endDrag = () => {
+  if (!dragged) return;
+  dragged.classList.remove('dragging');
+  dragged = null;
+  saveLayout();
+};
+$('decks').addEventListener('pointerup', endDrag);
+$('decks').addEventListener('pointercancel', endDrag);
+$('decks').addEventListener('keydown', (e) => {
+  const tile = e.target.closest('.deck');
+  const d = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[e.key];
+  if (!editing || !tile || !d) return;
+  e.preventDefault();
+  const to = d < 0 ? tile.previousElementSibling : tile.nextElementSibling?.nextElementSibling;
+  if (d < 0 && !to) return;
+  tile.parentNode.insertBefore(tile, to ?? null);
+  tile.focus();
+  saveLayout();
+});
+$('decks').addEventListener('click', (e) => {
+  const mv = e.target.closest('[data-move]');
+  if (!editing || !mv) return;
+  const sec = mv.closest('[data-section]');
+  const to = +mv.dataset.move < 0 ? sec.previousElementSibling : sec.nextElementSibling?.nextElementSibling;
+  if (+mv.dataset.move < 0 && !to) return;
+  sec.parentNode.insertBefore(sec, to ?? null);
+  saveLayout();
+});
+
 $('home').addEventListener('click', (e) => {
+  if (editing) return; // arranging: tiles don't open
   const pk = e.target.closest('[data-pick]');
   if (pk) return togglePick(pk.dataset.pick, pk);
   const b = e.target.closest('[data-deck]'); if (b) start(b.dataset.deck); });
@@ -550,7 +689,7 @@ document.addEventListener('keydown', (e) => {
   if (mode !== 'choices') return;
   const btns = [...$('answer').querySelectorAll('.choice')];
   const b = /^[1-9]$/.test(e.key) ? btns[e.key - 1] : btns.find((x) => x.textContent.toLowerCase() === e.key.toLowerCase());
-  if (b) choose(b.textContent, b);
+  if (b) choose(valueOf(b), b);
 });
 
 // ---------- metronome ----------
