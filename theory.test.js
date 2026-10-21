@@ -134,7 +134,7 @@ for (const sig of ['2/4', '3/4', '4/4', '5/4']) {
   for (let k = 0; k < 60; k++) {
     const q = DECKS.count.make({ kind: 'miss', sig }, true);
     assert.ok(q.prompt.notes.length > 0, `${sig} empty bar`);
-    q.choices.forEach((c) => assert.ok(['½', '1', '1½', '2'].includes(c), `${sig} impossible option ${c}`));
+    if (q.ask === 'How many beats are missing?') q.choices.forEach((c) => assert.ok(['½', '1', '1½', '2'].includes(c), `${sig} impossible option ${c}`));
   }
 }
 // Never two names for the same keys in one set of choices.
@@ -143,7 +143,7 @@ for (const hard of [false, true]) {
   for (const it of DECKS.keysig.pool(hard)) {
     for (let k = 0; k < 20; k++) {
       const q = DECKS.keysig.make(it, hard);
-      assert.strictEqual(new Set(q.choices.map(pc)).size, q.choices.length, `keysig twins: ${q.choices}`);
+      if (q.ask !== 'How many sharps or flats?') assert.strictEqual(new Set(q.choices.map(pc)).size, q.choices.length, `keysig twins: ${q.choices}`);
     }
   }
   for (const it of DECKS.pchords.pool(hard)) {
@@ -167,7 +167,7 @@ for (const it of DECKS.ear.pool(true)) for (let k = 0; k < 50; k++) assert.ok(Ma
 const rootOf = (label) => label.replace(/(m|dim|\+)$/, '');
 for (const id of ['chords', 'pchords']) {
   for (const hard of [false, true]) {
-    const qs = Array.from({ length: 2000 }, () => DECKS[id].make(rand(DECKS[id].pool(hard)), hard)).filter((q) => q.choices);
+    const qs = Array.from({ length: 2000 }, () => DECKS[id].make(rand(DECKS[id].pool(hard)), hard)).filter((q) => q.choices && q.ask !== 'Spell this chord');
     const byRoot = qs.filter((q) => q.choices.filter((c) => rootOf(c) === rootOf(q.correct)).length === 1).length;
     assert.ok(byRoot / qs.length <= 0.5, `${id}: ${Math.round((100 * byRoot) / qs.length)}% answerable from the root`);
   }
@@ -177,7 +177,7 @@ for (const id of ['chords', 'pchords']) {
 for (let k = 0; k < 200; k++) {
   const q = DECKS.keysig.make({ k: 'D' }, k % 2 === 0);
   if (q.ask === 'Which major key?') assert.ok(q.choices.includes('C♯ major'), `D major without the last-sharp trap: ${q.choices}`);
-  else assert.ok(q.choices.includes('D minor'), `B minor without the parallel minor: ${q.choices}`);
+  if (q.ask === 'Which minor key?') assert.ok(q.choices.includes('D minor'), `B minor without the parallel minor: ${q.choices}`);
 }
 
 // Every wrong choice gets a sensible "why" line.
@@ -191,6 +191,80 @@ for (const [id, deck] of Object.entries(DECKS)) {
     });
   }
 }
-assert.strictEqual(DECKS.chords.make(DECKS.chords.pool().find((c) => c.label === 'C♯dim'), false).why('C♯m'), 'C♯m needs G♯, not G.');
+const cSharpDim = DECKS.chords.pool().find((c) => c.label === 'C♯dim');
+let named;
+do named = DECKS.chords.make(cSharpDim, false); while (named.ask !== 'Name this chord');
+assert.strictEqual(named.why('C♯m'), 'C♯m needs G♯, not G.');
+
+// ---------- Hard mode is really harder ----------
+const many = (id, hard, n = 3000) => Array.from({ length: n }, () => DECKS[id].make(rand(DECKS[id].pool(hard)), hard));
+// Playing a chord in hard mode names an inversion and checks the bass; normal mode accepts any voicing.
+for (const q of many('pchords', true).filter((x) => !x.choices)) {
+  assert.match(q.ask, /in (root position|1st inversion|2nd inversion)$/);
+  assert.strictEqual(q.bass, q.keys[0] % 12, 'bass is the lowest key');
+}
+assert.ok(many('pchords', false).every((q) => q.bass === undefined), 'normal mode checks no voicing');
+// Hard bars mostly have syncopation, a dotted rhythm or a tie.
+const bars = many('count', true).filter((q) => q.prompt.notes?.length);
+const busy = bars.filter((q) => q.prompt.notes.some((x) => x.tie || x.dur === 'qd') || /8,q,8/.test(q.prompt.notes.map((x) => x.dur).join()));
+assert.ok(busy.length / bars.length >= 0.6, `only ${Math.round((100 * busy.length) / bars.length)}% of hard bars are tricky`);
+// Hard piano keys show one spelling for a black key, never "C♯/D♭".
+assert.ok(many('pnotes', true).every((q) => !(q.prompt.text || '').includes('/') && !(q.choices || []).some((c) => c.includes('/'))), 'hard pnotes shows a pair');
+// Normal note values never name hard-mode values.
+const hardNames = /tied|Dotted eighth|Sixteenth rest/;
+assert.ok(many('values', false).every((q) => !(q.choices || []).some((c) => hardNames.test(c))), 'normal values shows hard names');
+
+// ---------- New question types ----------
+const asks = (id, hard) => new Set(many(id, hard, 600).map((q) => q.ask));
+assert.ok(asks('chords', false).has('Spell this chord'));
+assert.ok(asks('count', false).has('Which time signature fits this bar?'));
+assert.ok(asks('values', false).has('Which one lasts this long? (in 4/4)'));
+assert.ok(asks('keysig', false).has('How many sharps or flats?'));
+for (const q of many('chords', true).filter((x) => x.ask === 'Spell this chord')) {
+  const [a, b, c] = q.correct.split(' ').map((x) => 'CDEFGAB'.indexOf(x[0]));
+  assert.ok((b - a + 7) % 7 === 2 && (c - b + 7) % 7 === 2, `${q.correct} skips letters wrong`);
+}
+const beatsOf = Object.fromEntries(DECKS.values.pool(true).map((i) => [i.v.label, i.v.beats]));
+for (const q of many('values', true).filter((x) => x.ask.startsWith('Which one lasts'))) {
+  assert.strictEqual(new Set(q.choices.map((c) => beatsOf[c])).size, 4, `two choices last as long: ${q.choices}`);
+}
+for (const q of many('count', true).filter((x) => x.ask.startsWith('Which time signature'))) {
+  const eighths = q.prompt.notes.reduce((t, x) => t + MM.EIGHTHS[x.dur], 0);
+  assert.strictEqual(eighths, +q.correct[0] * 2, `bar doesn't fill ${q.correct}`);
+}
+
+// ---------- Guitar & ukulele ----------
+// Every chord shape sounds exactly its chord's notes, in standard tuning.
+for (const [set, shapes] of Object.entries(MM.SHAPES)) {
+  const inst = set.replace('Hard', '');
+  for (const [label, shape] of Object.entries(shapes)) {
+    const chord = MM.chordPool().find((c) => c.label === label);
+    const got = [...new Set(MM.sounding(inst, MM.specOf(shape)).map((m) => m % 12))].sort((a, b) => a - b).join();
+    assert.strictEqual(got, MM.keySet(chord.notes), `${inst} ${label} (${shape}) sounds wrong`);
+  }
+}
+assert.deepStrictEqual(MM.FRETTED.guitar.strings, [40, 45, 50, 55, 59, 64], 'guitar is E A D G B E');
+assert.deepStrictEqual(MM.FRETTED.ukulele.strings, [67, 60, 64, 69], 'ukulele is G C E A, high G');
+for (const inst of ['guitar', 'ukulele']) {
+  for (const hard of [false, true]) {
+    for (const q of many(`${inst}Notes`, hard, 800)) {
+      if (q.prompt.type === 'fret') {
+        // The dot's note is the answer.
+        const [m] = MM.sounding(inst, q.prompt.spec);
+        assert.strictEqual(q.correct, MM.pcName(m), `${inst} dot ${q.prompt.spec}`);
+        assert.ok(hard || MM.fretsOf(q.prompt.spec).every((f) => f === null || f <= 4), 'normal mode stays in the first 4 frets');
+      } else {
+        // Picture choices: every option is a different note, and the answer is the asked note.
+        const pcs = q.choices.map((c) => MM.sounding(inst, c)[0] % 12);
+        assert.strictEqual(new Set(pcs).size, q.choices.length, `${inst} two frets with the same note: ${q.choices}`);
+        assert.strictEqual(MM.pcName(MM.sounding(inst, q.correct)[0]), q.prompt.text);
+      }
+    }
+    for (const q of many(`${inst}Chords`, hard, 400)) {
+      if (q.art) q.choices.forEach((c) => assert.ok(q.label(c), `${inst} unnamed shape ${c}`));
+    }
+  }
+}
+assert.ok(many('guitarChords', true).some((q) => q.prompt.spec === '1,3,3,2,1,1' || q.choices.includes('1,3,3,2,1,1')), 'hard guitar has the F barre chord');
 
 console.log('theory ok');

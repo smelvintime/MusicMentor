@@ -238,13 +238,46 @@ const MM = (() => {
         play: keys,
       };
     }
+    // Hard mode names the inversion and checks it: your lowest key must be its bass note, in any octave.
     return {
       prompt: { type: 'text', text: it.label },
-      ask: 'Play this chord',
+      ask: hard ? `Play this chord in ${INV_NAME[inv]}` : 'Play this chord',
       keys,
       exact: false,
-      hint: chordHint(it),
+      bass: hard ? keys[0] % 12 : undefined,
+      hint: hard ? `${chordHint(it, inv, true)} Lowest key: ${name(shown[0])}.` : chordHint(it),
       play: keys,
+    };
+  }
+  const INV_NAME = ['root position', '1st inversion', '2nd inversion'];
+
+  // Spelling: every other letter (C E G), so a sharp-or-flat mix-up (C D♯ G) is wrong even when it sounds right.
+  const spell = (notes) => notes.map(name).join(' ');
+  function misspell(n) {
+    for (const by of [-1, 1]) {
+      const base = fromDia(dia(n) + by);
+      const acc = { 0: '', 1: '#', '-1': 'b' }[midi(n) - midi({ ...base, acc: '' })];
+      if (acc !== undefined && !ODD.includes(base.letter + acc)) return { ...base, acc };
+    }
+    return null;
+  }
+  function chordSpellQuestion(it) {
+    const root = it.notes[0];
+    const pool = chordPool();
+    const family = shuffle(pool.filter((c) => name(c.notes[0]) === name(root))).map((c) => spell(c.notes));
+    const wrong3 = misspell(it.notes[1]);
+    const byLetters = `${it.notes.map((n) => n.letter).join(' ')}`;
+    return {
+      prompt: { type: 'text', text: it.label },
+      ask: 'Spell this chord',
+      choices: pickFirst(spell(it.notes), [wrong3 && spell([root, wrong3, it.notes[2]]), ...family, ...shuffle(pool.map((c) => spell(c.notes)))]),
+      correct: spell(it.notes),
+      hint: `${chordHint(it)} Triads use every other letter: ${byLetters}.`,
+      why: (given) => {
+        const c = pool.find((x) => spell(x.notes) === given);
+        return c ? `You picked ${given}: that spells ${c.label}.` : `You picked ${given}: the letters must skip one each time (${byLetters}).`;
+      },
+      play: it.notes.map(midi),
     };
   }
 
@@ -260,14 +293,14 @@ const MM = (() => {
     8: 'the middle key of the group of 3', 9: 'the white key between the 2nd and 3rd of the 3',
     10: 'the right key of the group of 3', 11: 'the white key just right of the group of 3',
   };
-  const PC_OF = { ...PC, ...Object.fromEntries(Object.entries(BLACK_NAMES).map(([pc, nm]) => [nm, +pc])) };
+  const PC_OF = { ...PC, ...Object.fromEntries(Object.entries(BLACK_NAMES).flatMap(([pc, nm]) => [nm, ...nm.split('/')].map((x) => [x, +pc]))) };
 
   // Hard mode spellings that land on a white key.
   const ODD_SPELLING = { 0: 'B♯', 4: 'F♭', 5: 'E♯', 11: 'C♭' };
 
   function pianoNoteQuestion(it, hard) {
     const m = it.m + (Math.random() < 0.5 ? 0 : 12); // either octave
-    if (hard && ODD_SPELLING[m % 12] && Math.random() < 0.5) {
+    if (hard && ODD_SPELLING[m % 12] && Math.random() < 0.6) {
       const odd = ODD_SPELLING[m % 12];
       const hint = `${odd} is just ${pcName(m)}: a sharp is always the very next key up and a flat the very next key down — even when that key is white.`;
       return { prompt: { type: 'text', text: odd }, ask: 'Tap this key', keys: [m], exact: false, hint, play: [m] };
@@ -275,17 +308,22 @@ const MM = (() => {
     const nm = pcName(m);
     const hint = `${nm} is ${KEY_SPOT[m % 12]}${isBlack(m) ? `, just above ${pcName(m - 1)}` : ''}.`;
     if (Math.random() < 0.5) {
+      // Hard mode: black keys take one spelling, every option sharp or every option flat.
+      const side = hard ? rand([0, 1]) : null;
+      const one = (n) => (side === null ? n : n.split('/')[side]);
       return {
         prompt: { type: 'piano', highlight: [m] },
         ask: 'Name this key',
-        choices: isBlack(m) ? Object.values(BLACK_NAMES) : LETTERS.split(''),
-        correct: nm,
+        choices: isBlack(m) ? Object.values(BLACK_NAMES).map(one) : LETTERS.split(''),
+        correct: isBlack(m) ? one(nm) : nm,
         hint,
         why: (given) => `You picked ${given}: that one is ${KEY_SPOT[PC_OF[given]]}.`,
         play: [m],
       };
     }
-    return { prompt: { type: 'text', text: nm }, ask: 'Tap this key', keys: [m], exact: false, hint, play: [m] };
+    // Hard mode shows one spelling of a black key (D♭, not C♯/D♭), so you have to work out which key it is.
+    const shown = hard && isBlack(m) ? rand(nm.split('/')) : nm;
+    return { prompt: { type: 'text', text: shown }, ask: 'Tap this key', keys: [m], exact: false, hint, play: [m] };
   }
 
   // ---------- Rhythm ----------
@@ -328,17 +366,31 @@ const MM = (() => {
     { dur: 'q', tie: 'h', label: 'Quarter tied to half' }, { dur: '8', tie: '8', label: 'Eighth tied to eighth' },
   ];
 
-  function valueQuestion(it) {
+  function valueQuestion(it, hard) {
     const v = it.v;
-    const rest = v.dur.includes('r');
     const first = { keys: [v.dur === 'wr' ? 'd/5' : 'b/4'], dur: v.dur, tie: !!v.tie };
     const prompt = { type: 'staff', clef: null, notes: v.tie ? [first, { keys: ['b/4'], dur: v.tie }] : [first] };
     const hint = `${v.label}. ${VALUE_TIPS[v.tie ? 'tie' : v.dur]}`;
-    if (Math.random() < 0.5) {
+    const known = [...VALUES, ...(hard ? VALUES_HARD : [])]; // normal mode never shows hard-mode names
+    const r = Math.random();
+    if (r < 1 / 3) {
       return { prompt, ask: 'How many beats? (in 4/4)', choices: pickRandom(v.beats, BEATS), correct: v.beats, hint };
     }
+    if (r < 2 / 3) {
+      // The other way round. Values with the same length (whole note, whole rest) are never offered together.
+      const beatsOf = Object.fromEntries(known.map((x) => [x.label, x.beats]));
+      const beatText = (b) => `${b} beat${['1', '½', '¾', '¼'].includes(b) ? '' : 's'}`;
+      return {
+        prompt: { type: 'text', text: beatText(v.beats) },
+        ask: 'Which one lasts this long? (in 4/4)',
+        choices: pickRandom(v.label, Object.keys(beatsOf), 4, (l) => beatsOf[l]),
+        correct: v.label,
+        hint,
+        why: (given) => `You picked ${given}: that lasts ${beatText(beatsOf[given])}.`,
+      };
+    }
     // Every option is the same kind as the answer (all ties, all dotted...), so the wording never gives it away.
-    const pool = [...VALUES, ...VALUES_HARD, ...VALUE_LURES].filter((x) => valueKind(x) === valueKind(v)).map((x) => x.label);
+    const pool = [...known, ...VALUE_LURES].filter((x) => valueKind(x) === valueKind(v)).map((x) => x.label);
     return { prompt, ask: 'What is this called?', choices: pickRandom(v.label, pool), correct: v.label, hint };
   }
 
@@ -351,7 +403,8 @@ const MM = (() => {
     const out = [];
     let rem = eighths;
     while (rem > 0) {
-      const opts = ['h', 'q', 'q', 'qr', '8', 'hd', ...(hard ? ['syn', 'syn', 'dot'] : [])]
+      // Hard mode leans on the groups, so most bars have syncopation or a dotted rhythm in them.
+      const opts = (hard ? ['h', 'q', 'qr', '8', 'syn', 'syn', 'syn', 'dot', 'dot', 'dot'] : ['h', 'q', 'q', 'qr', '8', 'hd'])
         .filter((d) => (GROUPS[d] ? 4 : EIGHTHS[d]) <= rem);
       const d = rand(opts);
       if (GROUPS[d]) { out.push(...GROUPS[d]); rem -= 4; }
@@ -382,30 +435,48 @@ const MM = (() => {
         : { prompt, ask: 'Which note gets one beat?', choices: beatChoices, correct: unit, hint };
     }
     const top = +it.sig[0];
+    // A whole bar with no time signature: which one fits?
+    if (Math.random() < 1 / 3) {
+      const durs = fillMeasure(top * 2, hard);
+      const notes = barNotes(durs, hard);
+      return {
+        prompt: { type: 'staff', clef: 'treble', notes },
+        ask: 'Which time signature fits this bar?',
+        choices: ['2/4', '3/4', '4/4', ...(hard ? ['5/4'] : [])],
+        correct: it.sig,
+        hint: `Add it up: ${durs.map((d) => FRAC[EIGHTHS[d]]).join(' + ')} = ${FRAC[top * 2]} quarter-note beats → ${it.sig}.${tieTip(notes)}`,
+      };
+    }
     const possible = [1, 2, 3, 4].filter((m) => m < top * 2); // in eighths; something is always left to see
     const missing = rand(possible);
     const durs = fillMeasure(top * 2 - missing, hard);
-    const notes = durs.map((d) => ({ keys: [d === 'qr' ? 'b/4' : rand(['g/4', 'a/4', 'b/4', 'c/5', 'd/5'])], dur: d }));
-    // Hard mode: tie some neighbouring notes. Ties don't change the count, they just make it harder to read.
-    if (hard) {
-      notes.forEach((x, i) => {
-        const nx = notes[i + 1];
-        if (nx && !x.dur.includes('r') && !nx.dur.includes('r') && Math.random() < 0.35) {
-          x.tie = true;
-          nx.keys = x.keys;
-        }
-      });
-    }
-    const tieTip = notes.some((x) => x.tie) ? ' Ties join notes but each note still counts its own beats.' : '';
+    const notes = barNotes(durs, hard);
     const counted = durs.map((d) => FRAC[EIGHTHS[d]]).join(' + ');
     return {
       prompt: { type: 'staff', clef: 'treble', timeSig: it.sig, notes },
       ask: 'How many beats are missing?',
       choices: pickRandom(FRAC[missing], possible.map((m) => FRAC[m])), // only amounts that can be the answer
       correct: FRAC[missing],
-      hint: `${it.sig} needs ${top} beats. You see ${counted} = ${FRAC[top * 2 - missing]}. Missing ${FRAC[missing]}.${tieTip}`,
+      hint: `${it.sig} needs ${top} beats. You see ${counted} = ${FRAC[top * 2 - missing]}. Missing ${FRAC[missing]}.${tieTip(notes)}`,
     };
   }
+
+  // Pitches for a bar of durations. Hard mode ties about half the neighbouring notes:
+  // ties don't change the count, they just make it harder to read.
+  function barNotes(durs, hard) {
+    const notes = durs.map((d) => ({ keys: [d === 'qr' ? 'b/4' : rand(['g/4', 'a/4', 'b/4', 'c/5', 'd/5'])], dur: d }));
+    if (hard) {
+      notes.forEach((x, i) => {
+        const nx = notes[i + 1];
+        if (nx && !x.dur.includes('r') && !nx.dur.includes('r') && Math.random() < 0.5) {
+          x.tie = true;
+          nx.keys = x.keys;
+        }
+      });
+    }
+    return notes;
+  }
+  const tieTip = (notes) => (notes.some((x) => x.tie) ? ' Ties join notes but each note still counts its own beats.' : '');
 
   // ---------- Key signatures ----------
   const SHARPS = 'FCGDAEB';
@@ -419,10 +490,9 @@ const MM = (() => {
   // Same sounding key, two spellings (F♯ / G♭ major, D♯ / E♭ minor): only one is ever offered.
   const namePc = (label) => (PC[label[0]] + ({ '♯': 1, '♭': -1 }[label[1]] ?? 0) + 12) % 12;
   const KEY_OF = Object.fromEntries(Object.keys(KEYS).flatMap((k) => [[keyName(k), k], [minorName(k), k]]));
-  const sigText = (k) => {
-    const n = Math.abs(KEYS[k]);
-    return n ? `${n} ${KEYS[k] > 0 ? 'sharp' : 'flat'}${n > 1 ? 's' : ''}` : 'no sharps or flats';
-  };
+  // A signature by count: 3 = "3 sharps", -1 = "1 flat".
+  const countText = (n) => (n ? `${Math.abs(n)} ${n > 0 ? 'sharp' : 'flat'}${Math.abs(n) > 1 ? 's' : ''}` : 'no sharps or flats');
+  const sigText = (k) => countText(KEYS[k]);
   // The classic wrong answers: the last accidental's own name, and the parallel minor.
   const lastAccKey = (n) => (n > 0 ? `${SHARPS[n - 1]}♯ major` : n < 0 ? `${FLATS[-n - 1]}♭ major` : null);
   function keySigWhy(given) {
@@ -441,7 +511,20 @@ const MM = (() => {
     if (n === -1) hint = 'One flat (B♭) = F major — memorize this one.';
     if (n < -1) hint = `Flats: ${list.join(' ')}. The second-to-last flat (${list.at(-2)}) names the key → ${keyName(it.k)}.`;
     const prompt = { type: 'staff', clef: 'treble', keySig: it.k, notes: [] };
-    if (hard && Math.random() < 0.5) {
+    const r = Math.random();
+    // The other way round: from the key's name to its signature. Hard mode also names minor keys.
+    if (r < 1 / 3) {
+      const key = hard && Math.random() < 0.5 ? minorName(it.k) : keyName(it.k);
+      const near = [n - 1, n + 1, -n, n + 2, n - 2].filter((x) => x !== n && Math.abs(x) <= 7);
+      return {
+        prompt: { type: 'text', text: key },
+        ask: 'How many sharps or flats?',
+        choices: pickFirst(countText(n), near.map(countText)),
+        correct: countText(n),
+        hint: key.endsWith('minor') ? `${hint} ${key} is its relative minor, so it shares the signature.` : hint,
+      };
+    }
+    if (hard && r < 2 / 3) {
       return {
         prompt,
         ask: 'Which minor key?',
@@ -547,6 +630,135 @@ const MM = (() => {
     };
   }
 
+  // ---------- Guitar & ukulele ----------
+  // Standard tuning, strings left to right as on a chord chart: guitar low E to high e,
+  // ukulele G C E A (the G is tuned high, above the C).
+  const FRETTED = {
+    guitar: { name: 'Guitar', strings: [40, 45, 50, 55, 59, 64] },
+    ukulele: { name: 'Ukulele', strings: [67, 60, 64, 69] },
+  };
+  // Chord shapes, one fret per string (x = not played). Hard mode adds the barre chords.
+  const SHAPES = {
+    guitar: { C: 'x32010', A: 'x02220', G: '320003', E: '022100', D: 'xx0232', Am: 'x02210', Em: '022000', Dm: 'xx0231' },
+    guitarHard: { F: '133211', B: 'x24442', 'B♭': 'x13331', Bm: 'x24432', Cm: 'x35543', Gm: '355333', Fm: '133111', 'F♯m': '244222', 'C♯m': 'x46654' },
+    ukulele: { C: '0003', Am: '2000', F: '2010', G: '0232', Em: '0432', Dm: '2210', D: '2220', A: '2100' },
+    ukuleleHard: { E: '4442', Bm: '4222', 'B♭': '3211', Cm: '0333', Fm: '1013', 'F♯m': '2120', Gm: '0231', 'E♭': '0331' },
+  };
+  // A diagram is drawn from a spec, one comma-separated token per string:
+  // a fret number (0 = open), "x" = not played, "-" = nothing marked.
+  const specOf = (shape) => shape.split('').join(',');
+  const fretsOf = (spec) => spec.split(',').map((t) => (/^\d+$/.test(t) ? +t : null));
+  const sounding = (inst, spec) => fretsOf(spec).flatMap((f, i) => (f === null ? [] : [FRETTED[inst].strings[i] + f]));
+  const STRUM = 0.035; // seconds between strings, low to high
+
+  const shapePool = (inst, hard) =>
+    Object.entries({ ...SHAPES[inst], ...(hard ? SHAPES[`${inst}Hard`] : {}) })
+      .map(([label, shape]) => ({ id: `${inst}:${label}`, inst, label, spec: specOf(shape), notes: chordPool().find((c) => c.label === label).notes }));
+
+  function fretChordQuestion(it, hard) {
+    const pool = shapePool(it.inst, hard);
+    const rootOf = (l) => l.replace(/m$/, '');
+    // Same root first (A next to Am), so you have to read the shape, not guess from the letter.
+    const ordered = [...shuffle(pool.filter((c) => rootOf(c.label) === rootOf(it.label))), ...shuffle(pool)];
+    const hint = `${it.label} = ${it.notes.map(name).join(' ')}. ${QUAL[rootOf(it.label) === it.label ? 'maj' : 'min'].label}.`;
+    const play = sounding(it.inst, it.spec);
+    if (Math.random() < 0.5) {
+      return {
+        prompt: { type: 'fret', spec: it.spec },
+        ask: 'Which chord is this?',
+        choices: pickFirst(it.label, ordered.map((c) => c.label)),
+        correct: it.label,
+        hint,
+        why: (given) => chordWhy(it, given),
+        play, gap: STRUM,
+      };
+    }
+    const labelOf = Object.fromEntries(pool.map((c) => [c.spec, c.label]));
+    return {
+      prompt: { type: 'text', text: it.label },
+      ask: 'Which shape is this chord?',
+      choices: pickFirst(it.spec, ordered.map((c) => c.spec)),
+      art: 'fret', // the choices are diagrams
+      label: (spec) => labelOf[spec], // how a choice is named in the miss history
+      correct: it.spec,
+      hint,
+      why: (given) => `You picked the ${labelOf[given]} shape.`,
+      play, gap: STRUM,
+    };
+  }
+
+  // One note per string and fret. Normal mode stays in the first 4 frets.
+  const fretNotePool = (inst, hard) =>
+    FRETTED[inst].strings.flatMap((open, s) => Array.from({ length: hard ? 13 : 5 }, (_, f) => ({
+      id: `${inst}n:${s}:${f}`, inst, s, f, m: open + f, label: `${pcName(open + f)} (string ${s + 1}, fret ${f})`,
+    })));
+  const dotSpec = (inst, s, f) => FRETTED[inst].strings.map((_, i) => (i === s ? f : '-')).join(',');
+  const sharpName = (m) => pcName(m).split('/')[0];
+  const flatName = (m) => pcName(m).split('/').at(-1);
+
+  // Count from the nearer of the open string and fret 12 (the open note an octave up), never through both.
+  function fretNoteHint(open, f) {
+    const up = f <= 6;
+    const from = up ? 0 : 12;
+    const seq = Array.from({ length: Math.abs(f - from) + 1 }, (_, i) => (up ? sharpName(open + i) : flatName(open + 12 - i)));
+    const lead = up ? `Open string = ${sharpName(open)}` : `Fret 12 = ${sharpName(open)} again, an octave up`;
+    return f === 0 || f === 12 ? `${lead}.` : `${lead}. ${up ? 'Up' : 'Down'} ${Math.abs(f - from)}: ${seq.join(' → ')}.`;
+  }
+
+  function fretNoteQuestion(it, hard) {
+    const open = FRETTED[it.inst].strings[it.s];
+    const nm = pcName(it.m);
+    const hint = `String ${it.s + 1} (${sharpName(open)}), fret ${it.f}. ${fretNoteHint(open, it.f)}`;
+    if (Math.random() < 0.5) {
+      return {
+        prompt: { type: 'fret', spec: dotSpec(it.inst, it.s, it.f) },
+        ask: 'Name this note',
+        choices: isBlack(it.m) ? Object.values(BLACK_NAMES) : LETTERS.split(''),
+        correct: nm,
+        hint,
+        play: [it.m],
+      };
+    }
+    // The other way round: where is this note on that string? Each option is a different note.
+    const frets = Array.from({ length: hard ? 13 : 5 }, (_, f) => f);
+    const byPc = (spec) => (open + fretsOf(spec)[it.s]) % 12;
+    const spec = dotSpec(it.inst, it.s, it.f);
+    return {
+      prompt: { type: 'text', text: nm },
+      ask: `Where is it on string ${it.s + 1} (${sharpName(open)})?`,
+      choices: pickRandom(spec, frets.map((f) => dotSpec(it.inst, it.s, f)), 4, byPc),
+      art: 'fret',
+      label: (sp) => `fret ${fretsOf(sp)[it.s]}`,
+      correct: spec,
+      hint,
+      why: (given) => `You picked fret ${fretsOf(given)[it.s]}: that's ${pcName(open + fretsOf(given)[it.s])}.`,
+      play: [it.m],
+    };
+  }
+
+  const fretDecks = (inst) => ({
+    [`${inst}Chords`]: {
+      title: `${FRETTED[inst].name} chords`, sub: 'Shape ↔ chord name',
+      pool: (hard) => shapePool(inst, hard), make: fretChordQuestion,
+      learn: [
+        'Each line running along the neck is a string. Upright (the usual chord chart) the lowest string is on the left; sideways (the Fretboard setting) it is at the bottom. The thick line is the nut, the end of the neck.',
+        'A red dot is where a finger presses, just behind that fret. O = play the string open. × = don\'t play it.',
+        'Major and minor shapes on the same root often differ by one finger: compare A and Am, E and Em, D and Dm.',
+        'Hard mode adds barre chords: one finger lies flat across several strings. The number beside the chart is the fret it starts at.',
+      ],
+    },
+    [`${inst}Notes`]: {
+      title: `${FRETTED[inst].name} notes`, sub: 'Fretboard ↔ note name',
+      pool: (hard) => fretNotePool(inst, hard), make: fretNoteQuestion,
+      learn: [
+        inst === 'guitar' ? 'Open strings, low to high: E A D G B E — "Eddie Ate Dynamite, Good Bye Eddie".' : 'Open strings, left to right: G C E A — "Good Cooks Eat Apples". The G is tuned high.',
+        'Each fret is one half step. Between B–C and E–F there is no sharp, so those are one fret apart.',
+        'Fret 12 is the open note again, an octave higher.',
+        'Normal mode stays in the first 4 frets. Hard mode goes up to fret 12.',
+      ],
+    },
+  });
+
   // ---------- Decks ----------
   const DECKS = {
     treble: {
@@ -585,7 +797,7 @@ const MM = (() => {
     },
     chords: {
       title: 'Chords', sub: 'Read triads, treble & bass',
-      pool: chordPool, make: chordStaffQuestion,
+      pool: chordPool, make: (it, hard) => (Math.random() < 1 / 3 ? chordSpellQuestion(it) : chordStaffQuestion(it, hard)),
       learn: [
         'A triad is 3 notes stacked in thirds. In root position they sit all on lines or all on spaces.',
         'Hard mode inverts chords, which breaks that pattern: look for the one wider gap, the root sits just above it.',
@@ -685,7 +897,9 @@ const MM = (() => {
     },
   };
 
-  return { DECKS, midi, isBlack, pcName, triad, note, staffHint, chordPool, keySet, fillMeasure, EIGHTHS };
+  Object.assign(DECKS, fretDecks('guitar'), fretDecks('ukulele'));
+
+  return { DECKS, FRETTED, SHAPES, sounding, specOf, fretsOf, midi, isBlack, pcName, triad, note, staffHint, chordPool, keySet, fillMeasure, EIGHTHS };
 })();
 
 if (typeof module !== 'undefined') module.exports = MM;
