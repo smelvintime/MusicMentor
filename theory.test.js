@@ -23,13 +23,13 @@ assert.match(staffHint('bass', note('A', '', 2)), /Space 1.*→ A/);
 for (const [id, deck] of Object.entries(DECKS)) {
   // Keyboards show whole octaves C..B so the left edge is always a recognizable C.
   if (deck.piano) assert.ok(deck.piano.lo % 12 === 0 && deck.piano.hi % 12 === 11, `${id} keyboard not C..B`);
-  for (const [adv, hard] of [[false, false], [true, false], [true, true]]) {
-    const pool = deck.pool(adv, hard);
+  for (const hard of [false, true]) {
+    const pool = deck.pool(hard);
     assert.ok(pool.length > 1, `${id} pool`);
     assert.strictEqual(new Set(pool.map((i) => i.id)).size, pool.length, `${id} unique ids`);
     for (const it of pool) {
       for (let k = 0; k < 4; k++) {
-        const q = deck.make(it, adv, hard);
+        const q = deck.make(it, hard);
         assert.ok(q.choices || q.keys, `${id} answerable`);
         if (q.choices) assert.ok(q.choices.includes(q.correct), `${id} ${it.id}: ${q.correct} not in ${q.choices}`);
         if (q.choices) assert.strictEqual(new Set(q.choices).size, q.choices.length, `${id} dup choices`);
@@ -48,67 +48,67 @@ for (const [id, deck] of Object.entries(DECKS)) {
 for (const hard of [false, true]) {
   for (let i = 0; i < 300; i++) {
     const n = 1 + Math.floor(Math.random() * 9);
-    assert.strictEqual(MM.fillMeasure(n, true, hard).reduce((s, d) => s + MM.EIGHTHS[d], 0), n);
+    assert.strictEqual(MM.fillMeasure(n, hard).reduce((s, d) => s + MM.EIGHTHS[d], 0), n);
   }
 }
 
 // Chord reading is answered by name only, and covers both clefs.
-const chordQs = Array.from({ length: 300 }, () => DECKS.chords.make(DECKS.chords.pool(true)[0], true, true));
+const chordQs = Array.from({ length: 300 }, () => DECKS.chords.make(DECKS.chords.pool()[0], true));
 assert.ok(chordQs.every((q) => !q.keys && q.choices), 'chords must not be answerable on the piano');
 assert.ok(chordQs.some((q) => q.prompt.clef === 'bass') && chordQs.some((q) => q.prompt.clef === 'treble'), 'chords in both clefs');
-for (const it of DECKS.chords.pool(true)) {
+for (const it of DECKS.chords.pool()) {
   for (let k = 0; k < 20; k++) {
-    const q = DECKS.chords.make(it, true, true);
+    const q = DECKS.chords.make(it, true);
     const top = Math.max(...q.play);
     assert.ok(q.prompt.clef === 'bass' ? top <= 59 : top <= 83, `${it.id} too high for ${q.prompt.clef}`);
   }
 }
 
 // Hard mode actually gets harder.
-const hardTreble = DECKS.treble.pool(true, true).length > DECKS.treble.pool(true, false).length;
+const hardTreble = DECKS.treble.pool(true).length > DECKS.treble.pool(false).length;
 assert.ok(hardTreble, 'hard treble adds ledger notes');
-const sawInversion = Array.from({ length: 200 }, () => DECKS.chords.make(DECKS.chords.pool(true)[0], true, true))
+const sawInversion = Array.from({ length: 200 }, () => DECKS.chords.make(DECKS.chords.pool()[0], true))
   .some((q) => q.hint.includes('inversion'));
 assert.ok(sawInversion, 'hard chords include inversions');
-const sawTie = Array.from({ length: 200 }, () => DECKS.count.make({ kind: 'miss', sig: '4/4' }, true, true))
+const sawTie = Array.from({ length: 200 }, () => DECKS.count.make({ kind: 'miss', sig: '4/4' }, true))
   .some((q) => q.prompt.notes.some((x) => x.tie));
 assert.ok(sawTie, 'hard rhythm includes ties');
 // Piano chords: a wrong choice must never play the same keys as the answer (F♯ / G♭, C+ / A♭+ ...).
-const keySet = (c) => [...new Set(c.notes.map((n) => ((midi(n) % 12) + 12) % 12))].sort((x, y) => x - y).join();
-const byLabel = Object.fromEntries(MM.chordPool(true).map((c) => [c.label, c]));
-for (const it of DECKS.pchords.pool(true)) {
+const keySet = (c) => MM.keySet(c.notes);
+const byLabel = Object.fromEntries(MM.chordPool().map((c) => [c.label, c]));
+for (const it of DECKS.pchords.pool()) {
   for (let k = 0; k < 40; k++) {
-    const q = DECKS.pchords.make(it, true, true);
+    const q = DECKS.pchords.make(it, true);
     if (!q.choices) continue;
     q.choices.filter((c) => c !== q.correct).forEach((c) => assert.notStrictEqual(keySet(byLabel[c]), keySet(it), `${it.label} offers twin ${c}`));
   }
 }
 
 // Reading chords and playing chord shapes are tracked separately.
-const chordIds = new Set(DECKS.chords.pool(true).map((i) => i.id));
-assert.ok(DECKS.pchords.pool(true).every((i) => !chordIds.has(i.id)), 'chords and pchords share ids');
+const chordIds = new Set(DECKS.chords.pool().map((i) => i.id));
+assert.ok(DECKS.pchords.pool().every((i) => !chordIds.has(i.id)), 'chords and pchords share ids');
 
 // Compound meter is felt in dotted-quarter beats, never "6 beats".
 for (const sig of ['6/8', '9/8', '12/8']) {
   for (let k = 0; k < 40; k++) {
-    const q = DECKS.count.make({ kind: 'sig', sig }, true, true);
+    const q = DECKS.count.make({ kind: 'sig', sig }, true);
     if (q.ask.startsWith('Which note')) assert.strictEqual(q.correct, 'Dotted quarter note', sig);
     else assert.strictEqual(q.ask, 'How many eighth notes per measure?', sig);
   }
 }
 // Multiple-choice options never give the answer away by their wording.
 const kindOf = (label) => (/rest/.test(label) ? 'rest' : /tied/.test(label) ? 'tie' : /Dotted/.test(label) ? 'dotted' : 'note');
-for (const it of DECKS.values.pool(true, true)) {
+for (const it of DECKS.values.pool(true)) {
   for (let k = 0; k < 30; k++) {
-    const q = DECKS.values.make(it, true, true);
+    const q = DECKS.values.make(it, true);
     if (q.ask !== 'What is this called?') continue;
     assert.strictEqual(q.choices.length, 4, `${it.label} has ${q.choices.length} choices`);
     q.choices.forEach((c) => assert.strictEqual(kindOf(c), kindOf(q.correct), `${q.correct} offered with ${c}`));
   }
 }
-for (const it of DECKS.relative.pool(true, true)) {
+for (const it of DECKS.relative.pool(true)) {
   for (let k = 0; k < 20; k++) {
-    const q = DECKS.relative.make(it, true, true);
+    const q = DECKS.relative.make(it, true);
     if (q.choices) q.choices.forEach((c) => assert.strictEqual(c.endsWith(' down'), q.correct.endsWith(' down'), `${q.correct} offered with ${c}`));
   }
 }

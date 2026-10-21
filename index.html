@@ -42,7 +42,7 @@
   .mix { width: 100%; display: flex; align-items: center; justify-content: space-between; text-align: left;
     background: linear-gradient(135deg, #2d6fd6, #4a9eff); border-radius: 20px; padding: 18px; margin-bottom: 26px; }
   .mix b { font-size: 19px; }
-  .mix .muted { color: #e6f0ff; }
+  .mix .muted { color: #e6f0ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mix .go { width: 44px; height: 44px; border-radius: 50%; background: #ffffff2e; display: grid; place-items: center; }
   .mix .go svg { width: 20px; height: 20px; fill: #fff; }
   .mix:active, .deck:active { transform: scale(.97); }
@@ -61,7 +61,6 @@
   .pick.on::before { background: var(--accent); border-color: var(--accent); }
   .pick.on svg { opacity: 1; }
   .mix > div { min-width: 0; }
-  .mix .muted { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .deck .muted { font-size: 13px; line-height: 1.3; }
 
   /* Quiz */
@@ -74,7 +73,7 @@
   .bar i { display: block; height: 100%; background: var(--accent); transition: width .2s; }
   .card { flex: 1; margin: 14px 0; background: var(--card); border-radius: 22px; padding: 16px;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
-    box-shadow: 0 14px 0 -6px #161618; min-height: 240px; }
+    box-shadow: 0 14px 0 -6px #161618; min-height: 240px; position: relative; padding-top: 52px; }
   .ask { color: var(--dim); font-size: 15px; text-align: center; }
   .prompt { width: 100%; display: flex; justify-content: center; }
   .prompt svg { width: 100%; max-height: 280px; filter: invert(.95); }
@@ -82,7 +81,6 @@
   .ear svg { width: 72px; height: 72px; color: var(--ink); }
   .hint { background: var(--card2); border-radius: 12px; padding: 10px 12px; font-size: 14px; width: 100%; }
   /* Streak: compact pill pinned to the top of the card, so it never shifts the question */
-  .card { position: relative; padding-top: 52px; }
   .streak { position: absolute; top: 12px; left: 0; right: 0; display: flex; justify-content: center; pointer-events: none; }
   .streak-box { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 999px;
     background: var(--card2); color: var(--ink); font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -98,7 +96,6 @@
   .wash { animation: wash-away 1.5s ease-in forwards; }
   #announce { position: fixed; inset: 0; background: rgba(0, 0, 0, .8); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
     z-index: 100; display: flex; align-items: center; justify-content: center; animation: announce-fade-in .3s ease-out; }
-  #announce[hidden] { display: none; }
   #announce .number { font-size: 96px; font-weight: 900; animation: announce-text-zoom .7s .2s cubic-bezier(.25, .46, .45, .94) both; }
   @keyframes announce-fade-in { from { opacity: 0; } to { opacity: 1; } }
   @keyframes announce-text-zoom { from { transform: scale(.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
@@ -124,7 +121,7 @@
   .choice.ok, .key.ok { background: var(--ok) !important; color: #fff; }
   .choice.bad, .key.bad { background: var(--bad) !important; color: #fff; }
 
-  .piano { position: relative; height: 170px; width: 100%; user-select: none; }
+  .piano { position: relative; height: 170px; width: 100%; }
   .key { position: absolute; top: 0; border-radius: 0 0 5px 5px; }
   .key.w { height: 100%; background: #f4f4f4; border: 1px solid #0d0d0f; }
   .key.b { height: 60%; background: #111; z-index: 1; border: 1px solid #0d0d0f; }
@@ -297,7 +294,7 @@
     <button class="next" id="metPlay">Start</button>
   </div>
   <div class="settings">
-    <div class="set-row">Beats per bar <div class="step" data-k="beats"><button data-d="-1" aria-label="Fewer beats">−</button><span></span><button data-d="1" aria-label="More beats">+</button></div></div>
+    <div class="set-row">Beats per bar <div class="step"><button data-d="-1" aria-label="Fewer beats">−</button><span></span><button data-d="1" aria-label="More beats">+</button></div></div>
     <div class="set-col">Meter<div class="opts" id="metMeters"></div></div>
     <div class="set-col">Subdivision<div class="opts" data-set="sub"></div></div>
     <div class="set-col">Sound<div class="opts" data-set="sound"></div></div>

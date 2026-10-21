@@ -2,7 +2,6 @@
 const { DECKS, isBlack } = MM;
 const VF = Vex.Flow;
 const $ = (id) => document.getElementById(id);
-const SHARPS_FLATS = true; // always on: every deck includes sharps, flats, diminished and augmented
 
 // Icons are inline SVG so they look identical on every device (no emoji fonts).
 const ICON = {
@@ -29,7 +28,7 @@ let ac;
 function audio() {
   // iPhone: play through the ringer/mute switch like a music app (Safari 16.4+).
   if (navigator.audioSession) navigator.audioSession.type = 'playback';
-  ac ??= new (window.AudioContext || window.webkitAudioContext)();
+  ac ??= new AudioContext();
   ac.resume();
   return ac;
 }
@@ -186,7 +185,7 @@ function start(id) {
 const itemWeight = (i) => S.w[i.id] ?? 1;
 // A deck's struggle = its cards' average, so Mix leans toward your weakest decks too.
 const deckWeight = (id) => {
-  const pool = DECKS[id].pool(SHARPS_FLATS, S.hard);
+  const pool = DECKS[id].pool(S.hard);
   return pool.reduce((a, i) => a + itemWeight(i), 0) / pool.length;
 };
 
@@ -201,10 +200,10 @@ function nextQ() {
   clearTimeout(advanceTimer);
   if (S.len && n >= S.len) return finish(); // len 0 = infinite
   const did = deckId === 'mix' ? weighted(mixDecks(), deckWeight) : deckId;
-  const pool = DECKS[did].pool(SHARPS_FLATS, S.hard);
+  const pool = DECKS[did].pool(S.hard);
   item = weighted(pool.length > 1 ? pool.filter((i) => i.id !== lastId) : pool, itemWeight);
   lastId = item.id;
-  q = { ...DECKS[did].make(item, SHARPS_FLATS, S.hard), deck: did };
+  q = { ...DECKS[did].make(item, S.hard), deck: did };
   n++;
   locked = false;
   sel = new Set();
@@ -709,7 +708,6 @@ function metFrame() {
 }
 
 function metHit(e) {
-  const d = $('metDisplay');
   if (e.sub === 0) {
     M.last = { t: e.t, n: M.count++ };
     document.querySelectorAll('#metBeats .bt').forEach((b, i) => b.classList.toggle('now', i === e.beat));
@@ -817,7 +815,7 @@ $('metBeats').onclick = (e) => {
 };
 // Hold − / + to keep changing the tempo.
 let holdTimer;
-const stopHold = () => { clearTimeout(holdTimer); clearInterval(holdTimer); };
+const stopHold = () => clearTimeout(holdTimer); // also clears the interval: they share one id pool
 document.querySelectorAll('[data-bpm]').forEach((b) => {
   const d = +b.dataset.bpm;
   b.addEventListener('pointerdown', () => {
