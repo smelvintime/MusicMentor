@@ -315,7 +315,9 @@ function tapKey(m, k) {
 
 function settle(ok, given) {
   locked = true;
-  if (!ok) logMiss(given);
+  // What was wrong with your pick first, then the rule. Only for picked choices: a tapped key has no name to compare.
+  const hint = [mode === 'choices' && !ok && q.why?.(given), q.hint].filter(Boolean).join('\n');
+  if (!ok) logMiss(given, hint);
   const ms = performance.now() - t0;
   tally = { ...tally, n: tally.n + 1, ok: tally.ok + (ok ? 1 : 0), ms: tally.ms + ms };
   if (!ok) tally.missed.add(item.label);
@@ -330,7 +332,7 @@ function settle(ok, given) {
   renderStreak(prev);
   if (!q.autoplay) play(q.play); // ear cards were already heard
   if (ok) { advanceTimer = setTimeout(nextQ, 450); return; }
-  $('hint').textContent = q.hint;
+  $('hint').textContent = hint;
   $('hint').hidden = false;
   $('next').hidden = false;
   $('tabs').hidden = true;
@@ -374,9 +376,9 @@ function announce(num) {
 // ---------- history of misses ----------
 const HISTORY_MAX = 50; // newest first; capped so infinite mode can't grow it forever
 let history = [];
-function logMiss(given) {
+function logMiss(given, hint) {
   const correct = mode === 'keys' ? q.keys.map(MM.pcName).join(' ') : q.correct;
-  history = [{ deck: q.deck, prompt: q.prompt, ask: q.ask, given, correct, hint: q.hint, play: q.play, gap: q.gap }, ...history].slice(0, HISTORY_MAX);
+  history = [{ deck: q.deck, prompt: q.prompt, ask: q.ask, given, correct, hint, play: q.play, gap: q.gap }, ...history].slice(0, HISTORY_MAX);
 }
 
 function openHistory() {
