@@ -19,13 +19,15 @@ const MM = (() => {
 
   const rand = (a) => a[Math.floor(Math.random() * a.length)];
   const shuffle = (a) => a.map((v) => [Math.random(), v]).sort((x, y) => x[0] - y[0]).map((x) => x[1]);
+  // `ordered`: the most telling wrong answers first; later ones only fill the gaps.
   // `keyOf` groups names that mean the same thing (F♯ / G♭ on a keyboard). The answer's group is never
   // offered as a wrong choice, and at most one name per group appears, so twins can't be ruled out as a pair.
-  function pickRandom(correct, pool, n = 4, keyOf = (x) => x) {
+  function pickFirst(correct, ordered, n = 4, keyOf = (x) => x) {
     const used = new Set([keyOf(correct)]);
-    const wrong = shuffle(pool).filter((d) => !used.has(keyOf(d)) && used.add(keyOf(d)));
+    const wrong = ordered.filter((d) => d && !used.has(keyOf(d)) && used.add(keyOf(d)));
     return shuffle([correct, ...wrong.slice(0, n - 1)]);
   }
+  const pickRandom = (correct, pool, n = 4, keyOf) => pickFirst(correct, shuffle(pool), n, keyOf);
 
   // ---------- Staff ----------
   const CLEFS = {
@@ -37,22 +39,26 @@ const MM = (() => {
     const c = CLEFS[clef];
     const p = dia(n) - c.bottom;
     const accTip = n.acc ? ` ${SYM[n.acc]} ${n.acc === '#' ? 'raises' : 'lowers'} it a half step → ${name(n)}.` : '';
-    const midC = n.letter === 'C' && n.oct === 4 ? ' (Middle C)' : '';
+    if (n.letter === 'C' && n.oct === 4) return `Middle C: one ledger line ${clef === 'treble' ? 'below' : 'above'} the staff.${accTip}`;
     if (p >= 0 && p <= 8) {
       const where = p % 2 === 0
         ? `Line ${p / 2 + 1} from the bottom. Lines: ${c.lines.split('').join(' ')} — "${c.lineTip}".`
         : `Space ${(p + 1) / 2} from the bottom. Spaces: ${c.spaces.split('').join(' ')} — ${c.spaceTip}.`;
-      return `${where} → ${n.letter}${midC}.${accTip}`;
+      return `${where} → ${n.letter}.${accTip}`;
     }
+    // Off the staff, name the nearest ledger line instead of counting letters from the staff:
+    // ledger lines step in thirds, so every note is on one or right next to one.
     const below = p < 0;
-    const edge = below ? 0 : 8;
-    const steps = Math.abs(p - edge);
-    const seq = Array.from({ length: steps + 1 }, (_, i) => fromDia(c.bottom + edge + (below ? -i : i)).letter);
-    const ledgers = Math.floor(steps / 2);
-    const lead = ledgers
-      ? `${ledgers} ledger line${ledgers > 1 ? 's' : ''} ${below ? 'below' : 'above'} the staff.`
-      : `Just ${below ? 'below' : 'above'} the staff.`;
-    return `${lead} Count from the ${below ? 'bottom' : 'top'} line: ${seq.join(' → ')}${midC}.${accTip}`;
+    const side = below ? 'below' : 'above';
+    const steps = Math.abs(p - (below ? 0 : 8));
+    const k = Math.floor(steps / 2);
+    const line = (i) => fromDia(c.bottom + (below ? -2 * i : 8 + 2 * i)).letter; // 0 = the outer staff line
+    if (steps % 2 === 0) {
+      const seq = Array.from({ length: k }, (_, i) => line(i + 1)).join(', ');
+      return `Ledger line ${k} ${side} the staff${k > 1 ? ` (they go ${seq})` : ''} → ${n.letter}.${accTip}`;
+    }
+    const from = k ? `ledger line ${k} (${line(k)})` : `the ${below ? 'bottom' : 'top'} line (${line(0)})`;
+    return `Just ${side} ${from} → ${n.letter}.${accTip}`;
   }
 
   // Normal mode keeps ledger-line notes natural: a sharp or flat way off the staff is rare in
@@ -85,6 +91,11 @@ const MM = (() => {
       keys: [midi(n)],
       exact: true,
       hint: staffHint(clef, n),
+      // Letter steps between your pick and the note, the nearer way round.
+      why: (given) => {
+        const d = ((LETTERS.indexOf(given[0]) - LETTERS.indexOf(n.letter) + 10) % 7) - 3;
+        return `You picked ${given}: ${Math.abs(d)} step${Math.abs(d) > 1 ? 's' : ''} too ${d > 0 ? 'high' : 'low'}.`;
+      },
       play: [midi(n)],
     };
   }
@@ -139,15 +150,44 @@ const MM = (() => {
     return items;
   }
 
-  const INVERSION_TIP = [
-    'Root position: the bottom note is the root.',
-    '1st inversion: the root moved to the top. The root is the note just above the biggest gap.',
-    '2nd inversion: the root is in the middle, just above the biggest gap.',
-  ];
+  const INVERSION_TIP = {
+    1: '1st inversion: the root moved to the top. The root is the note just above the biggest gap.',
+    2: '2nd inversion: the root is in the middle, just above the biggest gap.',
+  };
   // On the keyboard an augmented chord is all 4-half-step gaps, so "the biggest gap" doesn't exist.
   const AUG_KEYS_TIP = 'Augmented is all 4-half-step gaps, so every inversion has the same shape: the name tells you the root.';
-  const chordHint = (it, inv = 0, keyboard = false) =>
-    `${it.label} = ${it.notes.map(name).join(' – ')}. ${QUAL[it.q].label}: ${QUAL[it.q].tip}. ${keyboard && inv && it.q === 'aug' ? AUG_KEYS_TIP : INVERSION_TIP[inv]}`;
+  const chordHint = (it, inv = 0, keyboard = false) => {
+    const [a, b] = QUAL[it.q].st;
+    const invTip = keyboard && it.q === 'aug' ? AUG_KEYS_TIP : INVERSION_TIP[inv];
+    return `${it.label} = ${it.notes.map(name).join(' ')}. ${QUAL[it.q].label}: ${a} + ${b - a} half steps.${inv ? ` ${invTip}` : ''}`;
+  };
+
+  // What is wrong with the chord you picked, measured against the one shown.
+  function chordWhy(it, given) {
+    const g = chordPool().find((c) => c.label === given);
+    if (!g) return '';
+    const want = it.notes.map(name);
+    const got = g.notes.map(name);
+    if (got[0] !== want[0]) return `${given} is built on ${got[0]}. Find the root first.`;
+    const diff = got.map((x, i) => [x, want[i]]).filter(([x, y]) => x !== y);
+    return `${given} needs ${diff.map(([x, y]) => `${x}, not ${y}`).join(', and ')}.`;
+  }
+
+  // Wrong answers a reader would really give. Half the time it is the same root in
+  // every quality, so you must read the 3rd and 5th. Otherwise misreads: the bottom
+  // note of an inversion, a neighbouring line or space, the other clef, plus one
+  // same-root chord, so the root alone never gives the answer away.
+  function chordChoices(it, shown, clef, keyOf) {
+    const labels = new Set(chordPool().map((c) => c.label));
+    const ok = (l) => labels.has(l) && l !== it.label;
+    const root = it.notes[0];
+    const as = (n) => name(n) + QUAL[it.q].sfx;
+    const shift = (by) => as(fromDia(dia(root) + by, root.acc));
+    const family = shuffle(Object.keys(QUAL).map((q) => name(root) + QUAL[q].sfx)).filter(ok);
+    const misreads = shuffle([as(shown[0]), shift(1), shift(-1), ...(clef ? [shift(clef === 'bass' ? -2 : 2)] : [])]).filter(ok);
+    const ordered = Math.random() < 0.5 ? [...family, ...misreads] : [family[0], ...misreads, ...family];
+    return pickFirst(it.label, [...ordered, ...shuffle([...labels])], 4, keyOf);
+  }
 
   const octave = (notes, by) => notes.map((n) => ({ ...n, oct: n.oct + by }));
 
@@ -170,9 +210,10 @@ const MM = (() => {
     return {
       prompt: { type: 'staff', clef, notes: [{ keys: notes.map(vex), accs: notes.map((n) => n.acc), dur: 'w' }] },
       ask: 'Name this chord',
-      choices: pickRandom(it.label, chordPool().map((c) => c.label)),
+      choices: chordChoices(it, notes, clef),
       correct: it.label,
       hint: clefTip + chordHint(it, inv),
+      why: (given) => chordWhy(it, given),
       play: notes.map(midi),
     };
   }
@@ -182,16 +223,18 @@ const MM = (() => {
 
   function chordPianoQuestion(it, hard) {
     const inv = hard ? rand([0, 1, 2]) : 0;
-    const keys = invert(it.notes, inv).map(midi);
+    const shown = invert(it.notes, inv);
+    const keys = shown.map(midi);
     if (Math.random() < 0.5) {
       // A twin would be another right answer, so it is never offered as a wrong one.
       const keysOf = Object.fromEntries(chordPool().map((c) => [c.label, keySet(c.notes)]));
       return {
         prompt: { type: 'piano', highlight: keys },
         ask: 'Which chord is this?',
-        choices: pickRandom(it.label, Object.keys(keysOf), 4, (l) => keysOf[l]),
+        choices: chordChoices(it, shown, null, (l) => keysOf[l]),
         correct: it.label,
         hint: chordHint(it, inv, true),
+        why: (given) => chordWhy(it, given),
         play: keys,
       };
     }
@@ -208,6 +251,17 @@ const MM = (() => {
   // ---------- Piano notes ----------
   const pianoNotePool = () => Array.from({ length: 12 }, (_, i) => ({ id: `pkey:${60 + i}`, m: 60 + i, label: pcName(60 + i) }));
 
+  // Where each key sits against the black-key groups, by pitch class.
+  const KEY_SPOT = {
+    0: 'the white key just left of the group of 2 black keys', 1: 'the left key of the group of 2',
+    2: 'the white key between the 2 black keys', 3: 'the right key of the group of 2',
+    4: 'the white key just right of the group of 2', 5: 'the white key just left of the group of 3',
+    6: 'the left key of the group of 3', 7: 'the white key between the 1st and 2nd of the 3',
+    8: 'the middle key of the group of 3', 9: 'the white key between the 2nd and 3rd of the 3',
+    10: 'the right key of the group of 3', 11: 'the white key just right of the group of 3',
+  };
+  const PC_OF = { ...PC, ...Object.fromEntries(Object.entries(BLACK_NAMES).map(([pc, nm]) => [nm, +pc])) };
+
   // Hard mode spellings that land on a white key.
   const ODD_SPELLING = { 0: 'B♯', 4: 'F♭', 5: 'E♯', 11: 'C♭' };
 
@@ -219,9 +273,7 @@ const MM = (() => {
       return { prompt: { type: 'text', text: odd }, ask: 'Tap this key', keys: [m], exact: false, hint, play: [m] };
     }
     const nm = pcName(m);
-    const hint = isBlack(m)
-      ? `Black keys come in groups of 2 and 3. ${nm}: a sharp is the key just right of a white key, a flat just left.`
-      : `C is the white key just left of each group of 2 black keys. Count up from C: C D E F G A B → ${nm}.`;
+    const hint = `${nm} is ${KEY_SPOT[m % 12]}${isBlack(m) ? `, just above ${pcName(m - 1)}` : ''}.`;
     if (Math.random() < 0.5) {
       return {
         prompt: { type: 'piano', highlight: [m] },
@@ -229,6 +281,7 @@ const MM = (() => {
         choices: isBlack(m) ? Object.values(BLACK_NAMES) : LETTERS.split(''),
         correct: nm,
         hint,
+        why: (given) => `You picked ${given}: that one is ${KEY_SPOT[PC_OF[given]]}.`,
         play: [m],
       };
     }
@@ -358,12 +411,27 @@ const MM = (() => {
   const SHARPS = 'FCGDAEB';
   const FLATS = 'BEADGCF';
   const KEYS = { C: 0, G: 1, D: 2, A: 3, E: 4, B: 5, 'F#': 6, 'C#': 7, F: -1, Bb: -2, Eb: -3, Ab: -4, Db: -5, Gb: -6, Cb: -7 };
-  const keyName = (k) => k.replace('#', '♯').replace('b', '♭') + ' major';
+  const tonic = (k) => k.replace('#', '♯').replace('b', '♭');
+  const keyName = (k) => `${tonic(k)} major`;
   // Relative minor = 3 half steps below the major key; same key signature.
   const REL_MINOR = { C: 'A', G: 'E', D: 'B', A: 'F♯', E: 'C♯', B: 'G♯', 'F#': 'D♯', 'C#': 'A♯', F: 'D', Bb: 'G', Eb: 'C', Ab: 'F', Db: 'B♭', Gb: 'E♭', Cb: 'A♭' };
   const minorName = (k) => `${REL_MINOR[k]} minor`;
   // Same sounding key, two spellings (F♯ / G♭ major, D♯ / E♭ minor): only one is ever offered.
-  const keyPc = (k) => (PC[k[0]] + ACC[k.slice(1)] + 12) % 12;
+  const namePc = (label) => (PC[label[0]] + ({ '♯': 1, '♭': -1 }[label[1]] ?? 0) + 12) % 12;
+  const KEY_OF = Object.fromEntries(Object.keys(KEYS).flatMap((k) => [[keyName(k), k], [minorName(k), k]]));
+  const sigText = (k) => {
+    const n = Math.abs(KEYS[k]);
+    return n ? `${n} ${KEYS[k] > 0 ? 'sharp' : 'flat'}${n > 1 ? 's' : ''}` : 'no sharps or flats';
+  };
+  // The classic wrong answers: the last accidental's own name, and the parallel minor.
+  const lastAccKey = (n) => (n > 0 ? `${SHARPS[n - 1]}♯ major` : n < 0 ? `${FLATS[-n - 1]}♭ major` : null);
+  function keySigWhy(given) {
+    if (KEY_OF[given]) return `You picked ${given}: that has ${sigText(KEY_OF[given])}.`;
+    if (given.endsWith('minor')) return `You picked ${given}: that key would need double flats or sharps, so it isn't used.`;
+    return given.includes('♯')
+      ? `You picked ${given}, the last sharp's name. The key is a half step above the last sharp.`
+      : `You picked ${given}, the last flat's name. The second-to-last flat names the key.`;
+  }
 
   function keySigQuestion(it, hard) {
     const n = KEYS[it.k];
@@ -377,17 +445,19 @@ const MM = (() => {
       return {
         prompt,
         ask: 'Which minor key?',
-        choices: pickRandom(it.k, Object.keys(REL_MINOR), 4, keyPc).map(minorName),
+        choices: pickFirst(minorName(it.k), [`${tonic(it.k)} minor`, ...shuffle(Object.keys(REL_MINOR).map(minorName))], 4, namePc),
         correct: minorName(it.k),
         hint: `${hint} Its relative minor is 3 half steps down: ${minorName(it.k)}.`,
+        why: keySigWhy,
       };
     }
     return {
       prompt,
       ask: 'Which major key?',
-      choices: pickRandom(it.k, Object.keys(KEYS), 4, keyPc).map(keyName),
+      choices: pickFirst(keyName(it.k), [lastAccKey(n), ...shuffle(keySigPool().map((x) => keyName(x.k)))], 4, namePc),
       correct: keyName(it.k),
       hint,
+      why: keySigWhy,
     };
   }
   const keySigPool = () =>
@@ -509,7 +579,8 @@ const MM = (() => {
     },
     grand: {
       title: 'Both clefs', sub: 'Treble + bass mixed', piano: { lo: 48, hi: 83 },
-      pool: (hard) => [...staffPool('treble', hard ? -4 : -2, hard ? 11 : 8, hard), ...staffPool('bass', 3, hard ? 12 : 10, hard)], make: staffNoteQuestion,
+      pool: (hard) => [...staffPool('treble', hard ? -4 : -2, hard ? 11 : 8, hard), ...staffPool('bass', 3, hard ? 12 : 10, hard)],
+      make: (it) => { const q = staffNoteQuestion(it); return { ...q, hint: `${it.clef.toUpperCase()} clef. ${q.hint}` }; },
       learn: ['Check the clef FIRST, then the note.', 'Treble lines: E G B D F. Bass lines: G B D F A.', 'Both clefs meet at Middle C.'],
     },
     chords: {

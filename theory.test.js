@@ -2,6 +2,7 @@
 const assert = require('assert');
 const MM = require('./theory.js');
 const { note, midi, triad, staffHint, DECKS } = MM;
+const rand = (a) => a[Math.floor(Math.random() * a.length)];
 
 assert.strictEqual(midi(note('C', '', 4)), 60);
 assert.strictEqual(midi(note('A', '', 4)), 69);
@@ -15,9 +16,16 @@ assert.strictEqual(spell('B', '', 'dim'), 'B D F');
 assert.strictEqual(spell('E', 'b', 'maj'), 'Eb G Bb');
 
 assert.match(staffHint('treble', note('G', '', 4)), /Line 2.*→ G/);
-assert.match(staffHint('treble', note('C', '', 4)), /1 ledger line below.*E → D → C.*Middle C/);
-assert.match(staffHint('bass', note('C', '', 4)), /1 ledger line above.*A → B → C/);
+assert.match(staffHint('treble', note('C', '', 4)), /Middle C: one ledger line below/);
+assert.match(staffHint('bass', note('C', '', 4)), /Middle C: one ledger line above/);
 assert.match(staffHint('bass', note('A', '', 2)), /Space 1.*→ A/);
+assert.match(staffHint('bass', note('F', '', 4)), /Just above ledger line 2 \(E\) → F/);
+assert.match(staffHint('treble', note('A', '', 3)), /Ledger line 2 below the staff \(they go C, A\) → A/);
+// Hints name the nearest line instead of counting letters ("A → B → C → D …").
+for (const [id, deck] of Object.entries(DECKS)) {
+  if (!['treble', 'bass', 'grand'].includes(id)) continue;
+  deck.pool(true).forEach((it) => assert.ok(!/→ \S+ →/.test(staffHint(it.clef, it.n)), `${it.id} counts letters`));
+}
 
 // Every deck builds valid questions in both difficulty modes.
 for (const [id, deck] of Object.entries(DECKS)) {
@@ -155,4 +163,34 @@ for (const id of ['treble', 'bass', 'grand']) {
 }
 // Ear chords stay at C3 or above, where they don't turn to mud.
 for (const it of DECKS.ear.pool(true)) for (let k = 0; k < 50; k++) assert.ok(Math.min(...DECKS.ear.make(it, true).play) >= 48);
+// Chord quality is really tested: at most half the chord questions can be answered from the root alone.
+const rootOf = (label) => label.replace(/(m|dim|\+)$/, '');
+for (const id of ['chords', 'pchords']) {
+  for (const hard of [false, true]) {
+    const qs = Array.from({ length: 2000 }, () => DECKS[id].make(rand(DECKS[id].pool(hard)), hard)).filter((q) => q.choices);
+    const byRoot = qs.filter((q) => q.choices.filter((c) => rootOf(c) === rootOf(q.correct)).length === 1).length;
+    assert.ok(byRoot / qs.length <= 0.5, `${id}: ${Math.round((100 * byRoot) / qs.length)}% answerable from the root`);
+  }
+}
+
+// Key signatures offer the classic wrong answers.
+for (let k = 0; k < 200; k++) {
+  const q = DECKS.keysig.make({ k: 'D' }, k % 2 === 0);
+  if (q.ask === 'Which major key?') assert.ok(q.choices.includes('C♯ major'), `D major without the last-sharp trap: ${q.choices}`);
+  else assert.ok(q.choices.includes('D minor'), `B minor without the parallel minor: ${q.choices}`);
+}
+
+// Every wrong choice gets a sensible "why" line.
+for (const [id, deck] of Object.entries(DECKS)) {
+  for (const it of deck.pool(true)) {
+    const q = deck.make(it, true);
+    if (!q.why) continue;
+    q.choices.filter((c) => c !== q.correct).forEach((c) => {
+      const w = q.why(c);
+      assert.ok(w && !/undefined|NaN/.test(w), `${id} ${it.id}: bad why for ${c}: ${w}`);
+    });
+  }
+}
+assert.strictEqual(DECKS.chords.make(DECKS.chords.pool().find((c) => c.label === 'C♯dim'), false).why('C♯m'), 'C♯m needs G♯, not G.');
+
 console.log('theory ok');
