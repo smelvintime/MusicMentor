@@ -306,9 +306,12 @@ function tapKey(m, k) {
   play([m]);
   if (sel.size < q.keys.length) return;
   const norm = (ms) => [...new Set([...ms].map((x) => (q.exact ? x : x % 12)))].sort().join();
-  const ok = norm(sel) === norm(q.keys);
+  // `bass`: the inversion asked for, so your lowest key must be that note.
+  const ok = norm(sel) === norm(q.keys) && (q.bass === undefined || Math.min(...sel) % 12 === q.bass);
   const want = new Set(q.keys.map((x) => (q.exact ? x : x % 12)));
-  sel.forEach((x) => $('answer').querySelector(`[data-m="${x}"]`).classList.add(want.has(q.exact ? x : x % 12) ? 'ok' : 'bad'));
+  const low = Math.min(...sel);
+  const wrongBass = (x) => q.bass !== undefined && x === low && x % 12 !== q.bass;
+  sel.forEach((x) => $('answer').querySelector(`[data-m="${x}"]`).classList.add(want.has(q.exact ? x : x % 12) && !wrongBass(x) ? 'ok' : 'bad'));
   if (!ok) markKeys(q.keys, 'ok');
   settle(ok, [...sel].sort((a, b) => a - b).map(MM.pcName).join(' '));
 }
