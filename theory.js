@@ -20,9 +20,14 @@ const MM = (() => {
   const rand = (a) => a[Math.floor(Math.random() * a.length)];
   const shuffle = (a) => a.map((v) => [Math.random(), v]).sort((x, y) => x[0] - y[0]).map((x) => x[1]);
   // `ordered`: the most telling wrong answers first; later ones only fill the gaps.
-  const pickFirst = (correct, ordered, n = 4) =>
-    shuffle([correct, ...[...new Set(ordered)].filter((d) => d && d !== correct).slice(0, n - 1)]);
-  const pickRandom = (correct, pool, n = 4) => pickFirst(correct, shuffle(pool), n);
+  // `keyOf` groups names that mean the same thing (F♯ / G♭ on a keyboard). The answer's group is never
+  // offered as a wrong choice, and at most one name per group appears, so twins can't be ruled out as a pair.
+  function pickFirst(correct, ordered, n = 4, keyOf = (x) => x) {
+    const used = new Set([keyOf(correct)]);
+    const wrong = ordered.filter((d) => d && !used.has(keyOf(d)) && used.add(keyOf(d)));
+    return shuffle([correct, ...wrong.slice(0, n - 1)]);
+  }
+  const pickRandom = (correct, pool, n = 4, keyOf) => pickFirst(correct, shuffle(pool), n, keyOf);
 
   // ---------- Staff ----------
   const CLEFS = {
@@ -56,11 +61,13 @@ const MM = (() => {
     return `Just ${side} ${from} → ${n.letter}.${accTip}`;
   }
 
-  function staffPool(clef, lo, hi) {
+  // Normal mode keeps ledger-line notes natural: a sharp or flat way off the staff is rare in
+  // beginner music (A♯3 under the treble staff is almost always written B♭3).
+  function staffPool(clef, lo, hi, hard) {
     const items = [];
     for (let p = lo; p <= hi; p++) {
       const base = fromDia(CLEFS[clef].bottom + p);
-      for (const acc of ['', '#', 'b']) {
+      for (const acc of hard || (p >= 0 && p <= 8) ? ['', '#', 'b'] : ['']) {
         const n = { ...base, acc };
         if (ODD.includes(n.letter + acc)) continue;
         items.push({ id: `${clef}:${vex(n)}`, clef, n, label: `${name(n)}${n.oct}` });
@@ -147,9 +154,12 @@ const MM = (() => {
     1: '1st inversion: the root moved to the top. The root is the note just above the biggest gap.',
     2: '2nd inversion: the root is in the middle, just above the biggest gap.',
   };
-  const chordHint = (it, inv = 0) => {
+  // On the keyboard an augmented chord is all 4-half-step gaps, so "the biggest gap" doesn't exist.
+  const AUG_KEYS_TIP = 'Augmented is all 4-half-step gaps, so every inversion has the same shape: the name tells you the root.';
+  const chordHint = (it, inv = 0, keyboard = false) => {
     const [a, b] = QUAL[it.q].st;
-    return `${it.label} = ${it.notes.map(name).join(' ')}. ${QUAL[it.q].label}: ${a} + ${b - a} half steps.${inv ? ` ${INVERSION_TIP[inv]}` : ''}`;
+    const invTip = keyboard && it.q === 'aug' ? AUG_KEYS_TIP : INVERSION_TIP[inv];
+    return `${it.label} = ${it.notes.map(name).join(' ')}. ${QUAL[it.q].label}: ${a} + ${b - a} half steps.${inv ? ` ${invTip}` : ''}`;
   };
 
   // What is wrong with the chord you picked, measured against the one shown.
@@ -167,8 +177,8 @@ const MM = (() => {
   // every quality, so you must read the 3rd and 5th. Otherwise misreads: the bottom
   // note of an inversion, a neighbouring line or space, the other clef, plus one
   // same-root chord, so the root alone never gives the answer away.
-  function chordChoices(it, shown, clef, keep = () => true) {
-    const labels = new Set(chordPool().filter(keep).map((c) => c.label));
+  function chordChoices(it, shown, clef, keyOf) {
+    const labels = new Set(chordPool().map((c) => c.label));
     const ok = (l) => labels.has(l) && l !== it.label;
     const root = it.notes[0];
     const as = (n) => name(n) + QUAL[it.q].sfx;
@@ -176,7 +186,7 @@ const MM = (() => {
     const family = shuffle(Object.keys(QUAL).map((q) => name(root) + QUAL[q].sfx)).filter(ok);
     const misreads = shuffle([as(shown[0]), shift(1), shift(-1), ...(clef ? [shift(clef === 'bass' ? -2 : 2)] : [])]).filter(ok);
     const ordered = Math.random() < 0.5 ? [...family, ...misreads] : [family[0], ...misreads, ...family];
-    return pickFirst(it.label, [...ordered, ...shuffle([...labels])]);
+    return pickFirst(it.label, [...ordered, ...shuffle([...labels])], 4, keyOf);
   }
 
   const octave = (notes, by) => notes.map((n) => ({ ...n, oct: n.oct + by }));
@@ -217,13 +227,13 @@ const MM = (() => {
     const keys = shown.map(midi);
     if (Math.random() < 0.5) {
       // A twin would be another right answer, so it is never offered as a wrong one.
-      const notTwin = (c) => keySet(c.notes) !== keySet(it.notes);
+      const keysOf = Object.fromEntries(chordPool().map((c) => [c.label, keySet(c.notes)]));
       return {
         prompt: { type: 'piano', highlight: keys },
         ask: 'Which chord is this?',
-        choices: chordChoices(it, shown, null, notTwin),
+        choices: chordChoices(it, shown, null, (l) => keysOf[l]),
         correct: it.label,
-        hint: chordHint(it, inv),
+        hint: chordHint(it, inv, true),
         why: (given) => chordWhy(it, given),
         play: keys,
       };
@@ -305,7 +315,7 @@ const MM = (() => {
     w: 'Hollow head, no stem = 4 beats.', h: 'Hollow head with a stem = 2 beats.', q: 'Filled head with a stem = 1 beat.',
     8: 'One flag (or beam) halves a quarter = ½ beat.', 16: 'Two flags = ¼ beat.',
     hd: 'A dot adds half the value: 2 + 1 = 3 beats.', qd: 'A dot adds half the value: 1 + ½ = 1½ beats.',
-    wr: 'Whole rest hangs DOWN from line 4 (heavy, it fell) = 4 beats.', hr: 'Half rest sits ON line 3 like a hat = 2 beats.',
+    wr: 'Whole rest hangs DOWN from line 4 (heavy, it fell) = 4 beats. It also means "rest the whole bar" in any time signature.', hr: 'Half rest sits ON line 3 like a hat = 2 beats.',
     qr: 'The squiggle = 1 beat of silence.', '8r': 'One flag-like hook = ½ beat of silence.',
     '8d': 'A dot adds half the value: ½ + ¼ = ¾ beat.', '16r': 'Two flag-like hooks = ¼ beat of silence.',
     tie: 'A tie (curved line) joins two notes of the same pitch into one long sound: add their beats together.',
@@ -365,13 +375,15 @@ const MM = (() => {
           ? { prompt, ask: 'How many eighth notes per measure?', choices: pickRandom(top, ['3', '4', '6', '8', '9', '12']), correct: top, hint }
           : { prompt, ask: 'Which note gets one beat?', choices: beatChoices, correct: 'Dotted quarter note', hint };
       }
-      const hint = `Top number = beats per measure (${top}). Bottom number = which note gets one beat (${bottom} → ${unit.toLowerCase()}).`;
+      const feel = { '5/4': ' Often felt as 3 + 2 or 2 + 3.', '6/4': ' Often felt in 2 groups of 3 (two dotted-half beats).', '7/8': ' Felt in groups of 2 and 3, for example 2 + 2 + 3.' }[it.sig] || '';
+      const hint = `Top number = beats per measure (${top}). Bottom number = which note gets one beat (${bottom} → ${unit.toLowerCase()}).${feel}`;
       return Math.random() < 0.5
         ? { prompt, ask: 'How many beats per measure?', choices: pickRandom(top, ['2', '3', '4', '5', '6', '7', '8', '9', '12']), correct: top, hint }
         : { prompt, ask: 'Which note gets one beat?', choices: beatChoices, correct: unit, hint };
     }
     const top = +it.sig[0];
-    const missing = rand([1, 2, 3, 4]);
+    const possible = [1, 2, 3, 4].filter((m) => m < top * 2); // in eighths; something is always left to see
+    const missing = rand(possible);
     const durs = fillMeasure(top * 2 - missing, hard);
     const notes = durs.map((d) => ({ keys: [d === 'qr' ? 'b/4' : rand(['g/4', 'a/4', 'b/4', 'c/5', 'd/5'])], dur: d }));
     // Hard mode: tie some neighbouring notes. Ties don't change the count, they just make it harder to read.
@@ -389,7 +401,7 @@ const MM = (() => {
     return {
       prompt: { type: 'staff', clef: 'treble', timeSig: it.sig, notes },
       ask: 'How many beats are missing?',
-      choices: pickRandom(FRAC[missing], ['½', '1', '1½', '2', '3']),
+      choices: pickRandom(FRAC[missing], possible.map((m) => FRAC[m])), // only amounts that can be the answer
       correct: FRAC[missing],
       hint: `${it.sig} needs ${top} beats. You see ${counted} = ${FRAC[top * 2 - missing]}. Missing ${FRAC[missing]}.${tieTip}`,
     };
@@ -404,6 +416,8 @@ const MM = (() => {
   // Relative minor = 3 half steps below the major key; same key signature.
   const REL_MINOR = { C: 'A', G: 'E', D: 'B', A: 'F♯', E: 'C♯', B: 'G♯', 'F#': 'D♯', 'C#': 'A♯', F: 'D', Bb: 'G', Eb: 'C', Ab: 'F', Db: 'B♭', Gb: 'E♭', Cb: 'A♭' };
   const minorName = (k) => `${REL_MINOR[k]} minor`;
+  // Same sounding key, two spellings (F♯ / G♭ major, D♯ / E♭ minor): only one is ever offered.
+  const namePc = (label) => (PC[label[0]] + ({ '♯': 1, '♭': -1 }[label[1]] ?? 0) + 12) % 12;
   const KEY_OF = Object.fromEntries(Object.keys(KEYS).flatMap((k) => [[keyName(k), k], [minorName(k), k]]));
   const sigText = (k) => {
     const n = Math.abs(KEYS[k]);
@@ -431,7 +445,7 @@ const MM = (() => {
       return {
         prompt,
         ask: 'Which minor key?',
-        choices: pickFirst(minorName(it.k), [`${tonic(it.k)} minor`, ...shuffle(Object.keys(REL_MINOR).map(minorName))]),
+        choices: pickFirst(minorName(it.k), [`${tonic(it.k)} minor`, ...shuffle(Object.keys(REL_MINOR).map(minorName))], 4, namePc),
         correct: minorName(it.k),
         hint: `${hint} Its relative minor is 3 half steps down: ${minorName(it.k)}.`,
         why: keySigWhy,
@@ -440,7 +454,7 @@ const MM = (() => {
     return {
       prompt,
       ask: 'Which major key?',
-      choices: pickFirst(keyName(it.k), [lastAccKey(n), ...shuffle(keySigPool().map((x) => keyName(x.k)))]),
+      choices: pickFirst(keyName(it.k), [lastAccKey(n), ...shuffle(keySigPool().map((x) => keyName(x.k)))], 4, namePc),
       correct: keyName(it.k),
       hint,
       why: keySigWhy,
@@ -451,7 +465,7 @@ const MM = (() => {
 
   // ---------- Ear ----------
   function earQuestion(it, hard) {
-    const r = (hard ? 40 : 48) + Math.floor(Math.random() * (hard ? 24 : 12));
+    const r = 48 + Math.floor(Math.random() * (hard ? 18 : 12)); // root C3 or higher: lower close chords turn to mud
     let keys = [r, r + QUAL[it.q].st[0], r + QUAL[it.q].st[1]];
     if (hard) for (let i = rand([0, 1, 2]); i > 0; i--) keys = [...keys.slice(1), keys[0] + 12]; // inversion
     const labels = ['maj', 'min', 'dim', 'aug'].map((q) => QUAL[q].label);
@@ -487,7 +501,7 @@ const MM = (() => {
   const INTERVALS = {
     1: ['Minor 2nd', 'Jaws'], 2: ['Major 2nd', 'Frère Jacques'], 3: ['Minor 3rd', 'Greensleeves'],
     4: ['Major 3rd', 'When the Saints Go Marching In'], 5: ['Perfect 4th', 'Here Comes the Bride'],
-    6: ['Tritone', 'The Simpsons theme'], 7: ['Perfect 5th', 'Twinkle Twinkle Little Star'],
+    6: ['Tritone', 'The Simpsons theme'], 7: ['Perfect 5th', 'Twinkle Twinkle Little Star (the jump up to the 2nd "twinkle")'],
     8: ['Minor 6th', 'The Entertainer (3rd to 4th note)'], 9: ['Major 6th', 'My Bonnie Lies Over the Ocean'],
     10: ['Minor 7th', 'Star Trek theme'], 11: ['Major 7th', 'Take On Me (chorus)'], 12: ['Octave', 'Somewhere Over the Rainbow'],
   };
@@ -495,7 +509,7 @@ const MM = (() => {
   // Songs whose first two notes make the interval going DOWN (hard mode).
   const DOWN_SONGS = {
     1: 'Für Elise', 2: 'Mary Had a Little Lamb', 3: 'Hey Jude', 4: 'Swing Low, Sweet Chariot',
-    5: 'Eine kleine Nachtmusik (2nd to 3rd note)', 7: 'The Flintstones',
+    5: 'Eine kleine Nachtmusik (first two notes)', 7: 'The Flintstones',
   };
 
   function intervalPool(hard) {
@@ -537,7 +551,7 @@ const MM = (() => {
   const DECKS = {
     treble: {
       title: 'Treble clef', sub: 'Read notes, right hand', piano: { lo: 48, hi: 83 },
-      pool: (hard) => staffPool('treble', hard ? -6 : -4, 11), make: staffNoteQuestion,
+      pool: (hard) => staffPool('treble', hard ? -6 : -4, 11, hard), make: staffNoteQuestion,
       learn: [
         'The treble clef curls around the G line — line 2.',
         'Lines bottom→top: E G B D F — "Every Good Boy Does Fine".',
@@ -551,7 +565,7 @@ const MM = (() => {
     },
     bass: {
       title: 'Bass clef', sub: 'Read notes, left hand', piano: { lo: 36, hi: 71 },
-      pool: (hard) => staffPool('bass', -4, hard ? 15 : 12), make: staffNoteQuestion,
+      pool: (hard) => staffPool('bass', -4, hard ? 15 : 12, hard), make: staffNoteQuestion,
       learn: [
         'The two dots of the bass clef sit around the F line — line 4.',
         'Lines bottom→top: G B D F A — "Good Boys Do Fine Always".',
@@ -565,7 +579,7 @@ const MM = (() => {
     },
     grand: {
       title: 'Both clefs', sub: 'Treble + bass mixed', piano: { lo: 48, hi: 83 },
-      pool: (hard) => [...staffPool('treble', hard ? -4 : -2, hard ? 11 : 8), ...staffPool('bass', 3, hard ? 12 : 10)],
+      pool: (hard) => [...staffPool('treble', hard ? -4 : -2, hard ? 11 : 8, hard), ...staffPool('bass', 3, hard ? 12 : 10, hard)],
       make: (it) => { const q = staffNoteQuestion(it); return { ...q, hint: `${it.clef.toUpperCase()} clef. ${q.hint}` }; },
       learn: ['Check the clef FIRST, then the note.', 'Treble lines: E G B D F. Bass lines: G B D F A.', 'Both clefs meet at Middle C.'],
     },
@@ -611,6 +625,7 @@ const MM = (() => {
         'Whole = 4 beats, half = 2, quarter = 1, eighth = ½, sixteenth = ¼.',
         'Each flag cuts the value in half. A dot adds half the value.',
         'Whole rest hangs below line 4; half rest sits on line 3.',
+        'A whole rest also means "rest for the whole bar" in any time signature, even 3/4.',
       ],
     },
     count: {
@@ -650,7 +665,7 @@ const MM = (() => {
       make: perfectPitchQuestion,
       learn: [
         'One note plays with no reference. Tap the key you think it is, in any octave.',
-        'Listen to its color: low notes feel dark and warm, high notes bright and thin. Every note has its own shade.',
+        'Ignore how high or low it sounds: any octave counts. Compare it with your anchor note instead: is it above or below, and by how much?',
         'Start with one anchor note (C or A). Hum it during the day and check yourself here.',
         'Missed it? Tap the card to hear it again before you continue.',
         'Honest note: true perfect pitch is very rare in adults. What practice does build is a reliable memory for a few anchor notes, which makes everything else easier. Short daily sessions beat long ones.',
