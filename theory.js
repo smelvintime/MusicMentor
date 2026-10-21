@@ -739,7 +739,7 @@ const MM = (() => {
   const fretDecks = (inst) => ({
     [`${inst}Chords`]: {
       title: `${FRETTED[inst].name} chords`, sub: 'Shape ↔ chord name',
-      pool: (hard) => shapePool(inst, hard), make: fretChordQuestion,
+      pool: (hard) => shapePool(inst, hard), make: (it, hard) => ({ ...fretChordQuestion(it, hard), voice: inst }),
       learn: [
         'Each line running along the neck is a string. Upright (the usual chord chart) the lowest string is on the left; sideways (the Fretboard setting) it is at the bottom. The thick line is the nut, the end of the neck.',
         'A red dot is where a finger presses, just behind that fret. O = play the string open. × = don\'t play it.',
@@ -749,7 +749,7 @@ const MM = (() => {
     },
     [`${inst}Notes`]: {
       title: `${FRETTED[inst].name} notes`, sub: 'Fretboard ↔ note name',
-      pool: (hard) => fretNotePool(inst, hard), make: fretNoteQuestion,
+      pool: (hard) => fretNotePool(inst, hard), make: (it, hard) => ({ ...fretNoteQuestion(it, hard), voice: inst }), // played on that instrument
       learn: [
         inst === 'guitar' ? 'Open strings, low to high: E A D G B E — "Eddie Ate Dynamite, Good Bye Eddie".' : 'Open strings, left to right: G C E A — "Good Cooks Eat Apples". The G is tuned high.',
         'Each fret is one half step. Between B–C and E–F there is no sharp, so those are one fret apart.',

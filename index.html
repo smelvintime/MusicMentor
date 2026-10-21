@@ -78,6 +78,11 @@
   .editing .section { min-height: 26px; line-height: 26px; }
   .editing .deck { outline: 2px dashed #48484d; outline-offset: -2px; cursor: grab; touch-action: none; }
   .editing .deck .pick { visibility: hidden; }
+  /* Star: shown while arranging, in the corner the mix tick uses otherwise */
+  .fav { display: none; position: absolute; top: 6px; right: 6px; width: 40px; height: 40px; place-items: center;
+    font-size: 22px; line-height: 1; color: #5a5a60; }
+  .fav.on { color: #fbbf24; }
+  .editing .fav { display: grid; }
   .editing .deck.dragging { outline-color: var(--accent); opacity: .75; transform: scale(1.04); z-index: 2; cursor: grabbing; }
   @media (prefers-reduced-motion: no-preference) {
     @keyframes wiggle { from { transform: rotate(-.7deg); } to { transform: rotate(.7deg); } }
@@ -283,7 +288,7 @@
     <span class="go"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></span>
   </button>
   <div class="edit-bar" id="editBar" hidden>
-    <div><b>Arrange tiles</b><div class="muted">Drag a tile within its section. ↑ ↓ move a section.</div></div>
+    <div><b>Arrange tiles</b><div class="muted">Drag a tile within its section. ★ moves it to Favorites. ↑ ↓ move a section.</div></div>
     <button class="chip" id="resetLayout">Reset</button>
     <button class="chip done" id="editDone">Done</button>
   </div>
