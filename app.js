@@ -42,6 +42,32 @@ function load(m) {
 const nearest = (m) => SAMPLE_KEYS.reduce((a, b) => (Math.abs(b - m) < Math.abs(a - m) ? b : a));
 const preload = () => SAMPLE_KEYS.forEach((m) => load(m).catch(() => {}));
 
+// Guitar and ukulele: a plucked string synthesized on the spot (Karplus–Strong). A burst of noise
+// runs round a delay line one period long, softened a little on every pass, the way a real string
+// loses its upper harmonics. Steel guitar strings: bright and long. Nylon ukulele: softer, shorter.
+const PLUCK = { guitar: { bright: 0.8, decay: 0.996, secs: 2.5 }, ukulele: { bright: 0.45, decay: 0.994, secs: 1.6 } };
+const plucks = {};
+function pluck(ctx, m, voice) {
+  const key = `${voice}:${m}`;
+  if (plucks[key]) return plucks[key];
+  const { bright, decay, secs } = PLUCK[voice];
+  const sr = ctx.sampleRate;
+  const y = new Float32Array(Math.floor(sr * secs));
+  const period = sr / (440 * 2 ** ((m - 69) / 12));
+  const lag = period - 0.5; // the two-sample average adds half a sample of delay
+  const at = (j) => { const k = Math.floor(j); return k < 0 ? 0 : y[k] + (y[k + 1] - y[k]) * (j - k); }; // fractional delay, so it's in tune
+  let pick = 0;
+  for (let n = 0; n < y.length; n++) {
+    const x = n < period ? (pick += bright * (Math.random() * 2 - 1 - pick)) : 0; // pick noise, rounded off for nylon
+    y[n] = x + decay * 0.5 * (at(n - lag) + at(n - lag - 1));
+  }
+  const peak = y.reduce((p, v) => Math.max(p, Math.abs(v)), 0) || 1;
+  const buf = ctx.createBuffer(1, y.length, sr);
+  buf.getChannelData(0).set(y.map((v) => (v / peak) * 0.9));
+  plucks[key] = buf;
+  return buf;
+}
+
 // Only one sound at a time: a new sound (or a new card) quickly fades out the previous one.
 let voices = [];
 let playGen = 0;
@@ -59,13 +85,16 @@ function silence() {
 
 // gap > 0 plays the notes one after another instead of together. A long gap is a melodic
 // interval (each note hands off to the next); a short one is a strum, where every string rings on.
-async function play(midis, force, gap = 0) {
+// `voice`: 'guitar' or 'ukulele' plays plucked strings instead of the piano.
+async function play(midis, force, gap = 0, voice) {
   const melodic = gap > 0.1;
   silence();
   if (!midis || (!S.sound && !force)) return;
   const gen = playGen;
   try {
-    const notes = await Promise.all(midis.map(async (m) => [m, nearest(m), await load(nearest(m))]));
+    const notes = voice
+      ? midis.map((m) => [m, m, pluck(audio(), m, voice)])
+      : await Promise.all(midis.map(async (m) => [m, nearest(m), await load(nearest(m))]));
     if (gen !== playGen) return;
     const ctx = audio();
     const t = ctx.currentTime;
@@ -268,7 +297,7 @@ function render() {
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
 
   drawPrompt($('prompt'), q.prompt, deck);
-  if (q.autoplay) play(q.play, true, q.gap);
+  if (q.autoplay) play(q.play, true, q.gap, q.voice);
   renderAnswer();
 }
 
@@ -380,7 +409,7 @@ function settle(ok, given) {
   const prev = streak;
   streak = ok ? streak + 1 : 0;
   renderStreak(prev);
-  if (!q.autoplay) play(q.play); // ear cards were already heard
+  if (!q.autoplay) play(q.play, false, q.gap, q.voice); // ear cards were already heard
   if (ok) { advanceTimer = setTimeout(nextQ, 450); return; }
   $('hint').textContent = hint;
   $('hint').hidden = false;
@@ -429,7 +458,7 @@ let history = [];
 function logMiss(given, hint) {
   const named = (c) => (q.art ? q.label(c) : c); // picture choices are listed by name
   const correct = mode === 'keys' ? q.keys.map(MM.pcName).join(' ') : named(q.correct);
-  history = [{ deck: q.deck, prompt: q.prompt, ask: q.ask, given: named(given), correct, hint, play: q.play, gap: q.gap }, ...history].slice(0, HISTORY_MAX);
+  history = [{ deck: q.deck, prompt: q.prompt, ask: q.ask, given: named(given), correct, hint, play: q.play, gap: q.gap, voice: q.voice }, ...history].slice(0, HISTORY_MAX);
 }
 
 function openHistory() {
@@ -445,7 +474,7 @@ function openHistory() {
     row.insertAdjacentHTML('beforeend', `<div class="muted">${h.ask}</div>
       <div class="verdict"><span class="c-bad">${h.given}</span><span class="muted">→</span><span class="c-ok">${h.correct}</span></div>
       <div class="hint">${h.hint}</div>`);
-    if (h.play) row.onclick = () => play(h.play, true, h.gap);
+    if (h.play) row.onclick = () => play(h.play, true, h.gap, h.voice);
     body.append(row);
   });
   body.insertAdjacentHTML('beforeend', '<button class="next">Close</button>');
@@ -539,19 +568,37 @@ const PREVIEW = {
 };
 
 // ---------- custom layout ----------
-// Saved per instrument: { sections: [names], tiles: { name: [deck ids] } }. Tiles move only within
-// their section. Decks added later go to the end of their section; ones no longer there are skipped.
+// Saved per instrument: { sections: [names], tiles: { name: [deck ids] }, fav: [deck ids] }. Tiles
+// move only within their section. A starred deck leaves its section for Favorites, which starts at
+// the top. Decks added later go to the end of their section; ones no longer there are skipped.
+const FAV = 'Favorites';
 const ordered = (saved = [], actual) => [...saved.filter((x) => actual.includes(x)), ...actual.filter((x) => !saved.includes(x))];
+const favs = () => (S.layout?.[S.inst]?.fav || []).filter((id) => instDecks().includes(id));
 function layout() {
   const mine = S.layout?.[S.inst] || {};
-  const ids = Object.fromEntries(INSTRUMENTS[S.inst].sections);
-  return ordered(mine.sections, Object.keys(ids)).map((nm) => [nm, ordered(mine.tiles?.[nm], ids[nm])]);
+  const fav = favs();
+  const ids = Object.fromEntries(INSTRUMENTS[S.inst].sections.map(([nm, list]) => [nm, list.filter((id) => !fav.includes(id))]));
+  const names = ordered(mine.sections, Object.keys(ids));
+  const secs = names.map((nm) => [nm, ordered(mine.tiles?.[nm], ids[nm])]);
+  if (!fav.length) return secs;
+  const at = mine.sections?.includes(FAV) ? mine.sections.filter((nm) => nm === FAV || ids[nm]).indexOf(FAV) : 0;
+  return [...secs.slice(0, at), [FAV, fav], ...secs.slice(at)];
 }
 function saveLayout() { // read the order back off the screen
   const secs = [...document.querySelectorAll('#decks [data-section]')];
-  const tiles = Object.fromEntries(secs.map((el) => [el.dataset.section, [...el.querySelectorAll('[data-deck]')].map((b) => b.dataset.deck)]));
-  S.layout = { ...S.layout, [S.inst]: { sections: secs.map((el) => el.dataset.section), tiles } };
+  const tilesOf = (el) => [...el.querySelectorAll('[data-deck]')].map((b) => b.dataset.deck);
+  const tiles = Object.fromEntries(secs.filter((el) => el.dataset.section !== FAV).map((el) => [el.dataset.section, tilesOf(el)]));
+  const favEl = secs.find((el) => el.dataset.section === FAV);
+  S.layout = { ...S.layout, [S.inst]: { sections: secs.map((el) => el.dataset.section), tiles, fav: favEl ? tilesOf(favEl) : favs() } };
   save();
+}
+function toggleFav(id) {
+  const fav = favs();
+  const mine = S.layout?.[S.inst] || {};
+  S.layout = { ...S.layout, [S.inst]: { ...mine, fav: fav.includes(id) ? fav.filter((x) => x !== id) : [...fav, id] } };
+  save();
+  renderHome();
+  document.querySelector(`#decks [data-deck="${id}"]`)?.focus(); // keyboard users keep their place
 }
 let editing = false;
 function setEditing(on) {
@@ -570,11 +617,12 @@ function renderHome() {
   $('hard').classList.toggle('on', S.hard);
   $('hard').setAttribute('aria-checked', S.hard);
   $('decks').innerHTML = layout().map(([name, ids]) => `
-    <div data-section="${name}">
-    <div class="section">${name}<span class="mv-pair"><button class="mv" data-move="-1" aria-label="Move ${name} up">↑</button><button class="mv" data-move="1" aria-label="Move ${name} down">↓</button></span></div>
+    <div data-section="${name}"${ids.length ? '' : ' hidden'}>
+    <div class="section">${name === FAV ? '★ ' : ''}${name}<span class="mv-pair"><button class="mv" data-move="-1" aria-label="Move ${name} up">↑</button><button class="mv" data-move="1" aria-label="Move ${name} down">↓</button></span></div>
     <div class="decks">${ids.map((id) => `
       <button class="deck" data-deck="${id}">
         <span class="pick${S.pick.includes(id) ? ' on' : ''}" data-pick="${id}" role="checkbox" aria-checked="${S.pick.includes(id)}" aria-label="Add ${DECKS[id].title} to mix">${ICON.check}</span>
+        <span class="fav${favs().includes(id) ? ' on' : ''}" data-fav="${id}" role="switch" aria-checked="${favs().includes(id)}" aria-label="Favorite ${DECKS[id].title}">★</span>
         <div class="pv"></div>
         <b>${DECKS[id].title}</b>
         <div class="muted">${DECKS[id].sub}</div>
@@ -608,11 +656,11 @@ $('editDone').onclick = () => setEditing(false);
 $('resetLayout').onclick = () => { delete S.layout?.[S.inst]; save(); renderHome(); };
 
 // Arranging: drag a tile over another in its section and they swap places as you go.
-// Arrow keys move a focused tile; the ↑ ↓ buttons move a whole section.
+// Arrow keys move a focused tile, F stars it; the ↑ ↓ buttons move a whole section.
 let dragged = null;
 $('decks').addEventListener('pointerdown', (e) => {
   const tile = e.target.closest('.deck');
-  if (!editing || !tile) return;
+  if (!editing || !tile || e.target.closest('[data-fav]')) return;
   dragged = tile;
   tile.classList.add('dragging');
   tile.setPointerCapture(e.pointerId);
@@ -634,6 +682,7 @@ $('decks').addEventListener('pointerup', endDrag);
 $('decks').addEventListener('pointercancel', endDrag);
 $('decks').addEventListener('keydown', (e) => {
   const tile = e.target.closest('.deck');
+  if (editing && tile && e.key.toLowerCase() === 'f') return toggleFav(tile.dataset.deck);
   const d = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[e.key];
   if (!editing || !tile || !d) return;
   e.preventDefault();
@@ -644,12 +693,21 @@ $('decks').addEventListener('keydown', (e) => {
   saveLayout();
 });
 $('decks').addEventListener('click', (e) => {
+  if (!editing) return;
+  const fav = e.target.closest('[data-fav]');
+  if (fav) return toggleFav(fav.dataset.fav);
   const mv = e.target.closest('[data-move]');
-  if (!editing || !mv) return;
+  if (!mv) return;
   const sec = mv.closest('[data-section]');
-  const to = +mv.dataset.move < 0 ? sec.previousElementSibling : sec.nextElementSibling?.nextElementSibling;
-  if (+mv.dataset.move < 0 && !to) return;
-  sec.parentNode.insertBefore(sec, to ?? null);
+  // Step over sections hidden because all their decks are favorites.
+  const step = (el, dir) => { let s = el[dir]; while (s?.hidden) s = s[dir]; return s; };
+  if (+mv.dataset.move < 0) {
+    const prev = step(sec, 'previousElementSibling');
+    if (prev) sec.parentNode.insertBefore(sec, prev);
+  } else {
+    const next = step(sec, 'nextElementSibling');
+    if (next) sec.parentNode.insertBefore(sec, next.nextElementSibling);
+  }
   saveLayout();
 });
 
@@ -669,7 +727,7 @@ $('review').onclick = openHistory;
 $('learnBtn').onclick = () => openLearn(q.deck);
 $('sheet').onclick = (e) => { if (e.target.id === 'sheet' || e.target.matches('.next')) $('sheet').hidden = true; };
 $('card').onclick = () => {
-  if (q.autoplay) play(q.play, true, q.gap); // listening cards: tap to hear again
+  if (q.autoplay) play(q.play, true, q.gap, q.voice); // listening cards: tap to hear again
   else if (locked && !$('next').hidden) nextQ();
 };
 $('announce').onclick = () => { $('announce').hidden = true; };
