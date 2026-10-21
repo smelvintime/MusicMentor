@@ -112,4 +112,47 @@ for (const it of DECKS.relative.pool(true)) {
     if (q.choices) q.choices.forEach((c) => assert.strictEqual(c.endsWith(' down'), q.correct.endsWith(' down'), `${q.correct} offered with ${c}`));
   }
 }
+// Content fixes from the second review.
+// Every hint reads cleanly (no "undefined" in a 2/4 bar with nothing in it).
+for (const [id, deck] of Object.entries(DECKS)) {
+  for (const hard of [false, true]) {
+    for (const it of deck.pool(hard)) {
+      for (let k = 0; k < 6; k++) assert.ok(!/undefined|NaN/.test(deck.make(it, hard).hint), `${id} ${it.id} hint broken`);
+    }
+  }
+}
+// "Missing beats" options are all amounts that could be the answer.
+for (const sig of ['2/4', '3/4', '4/4', '5/4']) {
+  for (let k = 0; k < 60; k++) {
+    const q = DECKS.count.make({ kind: 'miss', sig }, true);
+    assert.ok(q.prompt.notes.length > 0, `${sig} empty bar`);
+    q.choices.forEach((c) => assert.ok(['½', '1', '1½', '2'].includes(c), `${sig} impossible option ${c}`));
+  }
+}
+// Never two names for the same keys in one set of choices.
+const pc = (k) => ((({ C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 })[k[0]] + ({ '♯': 1, '♭': -1 }[k[1]] || 0)) + 12) % 12;
+for (const hard of [false, true]) {
+  for (const it of DECKS.keysig.pool(hard)) {
+    for (let k = 0; k < 20; k++) {
+      const q = DECKS.keysig.make(it, hard);
+      assert.strictEqual(new Set(q.choices.map(pc)).size, q.choices.length, `keysig twins: ${q.choices}`);
+    }
+  }
+  for (const it of DECKS.pchords.pool(hard)) {
+    for (let k = 0; k < 10; k++) {
+      const q = DECKS.pchords.make(it, hard);
+      if (q.choices) assert.strictEqual(new Set(q.choices.map((c) => keySet(byLabel[c]))).size, q.choices.length, `pchords twins: ${q.choices}`);
+    }
+  }
+}
+// Normal mode: notes on ledger lines are natural.
+for (const id of ['treble', 'bass', 'grand']) {
+  DECKS[id].pool(false).forEach((it) => {
+    const clef = it.clef === 'treble' ? 30 : 18; // diatonic step of the bottom line
+    const p = it.n.oct * 7 + 'CDEFGAB'.indexOf(it.n.letter) - clef;
+    if (p < 0 || p > 8) assert.strictEqual(it.n.acc, '', `${id} ${it.id} accidental on a ledger line`);
+  });
+}
+// Ear chords stay at C3 or above, where they don't turn to mud.
+for (const it of DECKS.ear.pool(true)) for (let k = 0; k < 50; k++) assert.ok(Math.min(...DECKS.ear.make(it, true).play) >= 48);
 console.log('theory ok');
